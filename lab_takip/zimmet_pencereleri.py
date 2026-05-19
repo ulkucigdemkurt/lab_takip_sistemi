@@ -3,8 +3,8 @@ import csv
 from datetime import date
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QPushButton,
-    QComboBox, QSpinBox, QDateEdit, QTableWidget, QHeaderView, QTreeWidget,
-    QTreeWidgetItem, QMessageBox, QFileDialog
+    QLineEdit, QComboBox, QSpinBox, QDateEdit, QTableWidget, QHeaderView,
+    QTreeWidget, QTreeWidgetItem, QMessageBox, QFileDialog
 )
 from PyQt5.QtCore import QDate, Qt
 from PyQt5.QtGui import QColor, QFont

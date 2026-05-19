@@ -1,7 +1,7 @@
 
 import sqlite3
 from PyQt5.QtWidgets import (
-    QDialog, QHBoxLayout, QFormLayout, QGroupBox, QLabel, QPushButton,
+    QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox, QLabel, QPushButton,
     QLineEdit, QComboBox, QTableWidget, QHeaderView, QMessageBox
 )
 from tasarim import STIL_KODU

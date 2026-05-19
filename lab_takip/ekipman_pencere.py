@@ -1,8 +1,9 @@
 
 import sqlite3
 from PyQt5.QtWidgets import (
-    QDialog, QHBoxLayout, QFormLayout, QGroupBox, QLabel, QPushButton,
-    QLineEdit, QComboBox, QSpinBox, QTableWidget, QHeaderView
+    QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox, QLabel,
+    QPushButton, QLineEdit, QComboBox, QSpinBox, QTableWidget, QHeaderView,
+    QMessageBox
 )
 from PyQt5.QtGui import QColor, QFont
 from PyQt5.QtCore import Qt
