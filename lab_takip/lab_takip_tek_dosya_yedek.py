@@ -1,4 +1,4 @@
-import sys, sqlite3, os, csv
+import sys, sqlite3, os, csv, io
 from datetime import date
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QDialog, QWidget, QVBoxLayout, QHBoxLayout,
@@ -8,7 +8,16 @@ from PyQt5.QtWidgets import (
     QMessageBox, QGridLayout, QSizePolicy, QAbstractItemView, QFileDialog
 )
 from PyQt5.QtCore import QDate, Qt
-from PyQt5.QtGui import QColor, QFont
+from PyQt5.QtGui import QColor, QFont, QPixmap
+from PyQt5.QtCore import QDate, Qt
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+from reportlab.lib.units import cm
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Spacer, Image, Paragraph
+from reportlab.lib.styles import getSampleStyleSheet
 from tasarim import STIL_KODU
 
 def tablo_doldur(tablo, veriler, sutunlar):
@@ -121,6 +130,10 @@ class DB:
                 raise ValueError("Secili zimmet bilgisi guncel degil.")
             b.execute("UPDATE zimmetler SET durum='\u0130ade Edildi',gercek_iade_tarihi=? WHERE id=?", (str(date.today()),z_id))
             b.execute("UPDATE ekipmanlar SET musait_adet=musait_adet+? WHERE id=?", (adet,e_id))
+    def kategori_istatistik(self):
+        return self._q("""SELECT kategori, SUM(musait_adet) AS musait, SUM(toplam_adet-musait_adet) AS oduncte
+            FROM ekipmanlar WHERE is_active=1 GROUP BY kategori ORDER BY kategori""")
+
     def istatistik(self):
         return {"ekipman": self._q("SELECT COUNT(*) c FROM ekipmanlar WHERE is_active=1")[0]['c'],
                 "zimmet":  self._q("SELECT COUNT(*) c FROM zimmetler WHERE durum='Aktif'")[0]['c']}
@@ -362,7 +375,8 @@ class GecmisPenceresi(QDialog):
         self.ara = QLineEdit(); self.ara.setPlaceholderText("Kullanıcı, cihaz veya proje ara..."); self.ara.textChanged.connect(self._filtrele)
         btn_iade = QPushButton("✅ Seçili Cihazı İade Al"); btn_iade.setObjectName("onay_btn"); btn_iade.clicked.connect(self._iade)
         btn_csv = QPushButton("📥 Excel'e Aktar"); btn_csv.clicked.connect(self._csv)
-        ust.addWidget(QLabel("🔍")); ust.addWidget(self.ara); ust.addWidget(btn_iade); ust.addWidget(btn_csv); lay.addLayout(ust)
+        btn_pdf = QPushButton("📄 PDF Raporu"); btn_pdf.clicked.connect(self._pdf)
+        ust.addWidget(QLabel("🔍")); ust.addWidget(self.ara); ust.addWidget(btn_iade); ust.addWidget(btn_csv); ust.addWidget(btn_pdf); lay.addLayout(ust)
         self.tablo = QTableWidget(); self.tablo.setColumnCount(10)
         self.tablo.setHorizontalHeaderLabels(["ID","EkipmanID","Cihaz","Adet","Kullanıcı","Proje","Veriliş","İade","Gerçek İade","Durum"])
         self.tablo.setColumnHidden(0,True); self.tablo.setColumnHidden(1,True)
@@ -404,6 +418,73 @@ class GecmisPenceresi(QDialog):
             QMessageBox.information(self,"Başarılı","Dışa aktarıldı.")
         except Exception as e: QMessageBox.critical(self,"Hata",str(e))
 
+    def _pdf(self):
+        yol, _ = QFileDialog.getSaveFileName(self, "PDF Kaydet", "zimmet_raporu.pdf", "PDF (*.pdf)")
+        if not yol: return
+        try:
+            doc = SimpleDocTemplate(yol, pagesize=A4, topMargin=1.5*cm, bottomMargin=1.5*cm)
+            stiller = getSampleStyleSheet()
+            hikaye = []
+
+            # Başlık
+            hikaye.append(Paragraph("<b>BAUN Laboratuvar Takip Sistemi – Zimmet Raporu</b>",
+                                    stiller['Title']))
+            hikaye.append(Paragraph(f"Tarih: {date.today().strftime('%d.%m.%Y')}",
+                                    stiller['Normal']))
+            hikaye.append(Spacer(1, 0.4*cm))
+
+            # Grafik
+            veriler = self.db.kategori_istatistik()
+            if veriler:
+                kategoriler = [dict(v)['kategori'] for v in veriler]
+                musait    = [dict(v)['musait'] for v in veriler]
+                oduncte   = [dict(v)['oduncte'] for v in veriler]
+                kisalt = lambda s: s[:10]+"…" if len(s)>11 else s
+                etiketler = [kisalt(k) for k in kategoriler]
+                fig, ax = plt.subplots(figsize=(7, 2.8))
+                x = range(len(etiketler)); w = 0.38
+                ax.bar([i-w/2 for i in x], musait,  width=w, label='Müsait',  color='#68D391')
+                ax.bar([i+w/2 for i in x], oduncte, width=w, label='Ödünçte', color='#F6AD55')
+                ax.set_xticks(list(x)); ax.set_xticklabels(etiketler, fontsize=8)
+                ax.set_ylabel('Adet', fontsize=8); ax.legend(fontsize=8)
+                ax.set_title('Kategori Bazlı Ekipman Kullanım Durumu', fontsize=10)
+                ax.spines[['top','right']].set_visible(False); plt.tight_layout(pad=0.5)
+                buf = io.BytesIO(); fig.savefig(buf, format='png', dpi=120); plt.close(fig); buf.seek(0)
+                hikaye.append(Image(buf, width=14*cm, height=5.5*cm))
+                hikaye.append(Spacer(1, 0.4*cm))
+
+            # Zimmet tablosu
+            hikaye.append(Paragraph("<b>Zimmet Kayıtları</b>", stiller['Heading2']))
+            hikaye.append(Spacer(1, 0.2*cm))
+            basliklar = ["Cihaz", "Adet", "Kullanıcı", "Proje", "Veriliş", "İade", "Durum"]
+            tablo_verisi = [basliklar]
+            for r in range(self.tablo.rowCount()):
+                if not self.tablo.isRowHidden(r):
+                    satirlar = []
+                    for c in [2, 3, 4, 5, 6, 7, 9]:
+                        item = self.tablo.item(r, c)
+                        satirlar.append(item.text() if item else "")
+                    tablo_verisi.append(satirlar)
+
+            t = Table(tablo_verisi, repeatRows=1)
+            t.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#C6F6D5')),
+                ('TEXTCOLOR',  (0,0), (-1,0), colors.HexColor('#22543D')),
+                ('FONTNAME',   (0,0), (-1,0), 'Helvetica-Bold'),
+                ('FONTSIZE',   (0,0), (-1,-1), 7),
+                ('ALIGN',      (0,0), (-1,-1), 'CENTER'),
+                ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F0FAF4')]),
+                ('GRID',       (0,0), (-1,-1), 0.4, colors.HexColor('#C6F6D5')),
+                ('TOPPADDING', (0,0), (-1,-1), 3),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 3),
+            ]))
+            hikaye.append(t)
+            doc.build(hikaye)
+            QMessageBox.information(self, "Başarılı", "PDF raporu oluşturuldu.")
+        except Exception as e:
+            QMessageBox.critical(self, "Hata", str(e))
+
+
 class AnaPencere(QMainWindow):
     def __init__(self):
         super().__init__(); self.db = DB()
@@ -426,6 +507,12 @@ class AnaPencere(QMainWindow):
             self.kart[key] = sayi_lbl; kart_lay.addWidget(g)
         lay.addLayout(kart_lay)
 
+        # ── Grafik ─────────────────────────────────
+        self.grafik_lbl = QLabel(); self.grafik_lbl.setAlignment(Qt.AlignCenter)
+        self.grafik_lbl.setStyleSheet("background:#FFF; border:1px solid #C6F6D5; border-radius:8px;")
+        self.grafik_lbl.setMinimumHeight(200)
+        lay.addWidget(self.grafik_lbl)
+
         MENU = [
             ("📦","Zimmet Ver",self._zimmet_ac),
             ("📜","Geçmiş ve İade",self._gecmis_ac),
@@ -446,6 +533,30 @@ class AnaPencere(QMainWindow):
 
     def _guncelle(self):
         s = self.db.istatistik(); self.kart['ekipman'].setText(str(s['ekipman'])); self.kart['zimmet'].setText(str(s['zimmet']))
+        self._grafik_guncelle()
+
+    def _grafik_guncelle(self):
+        veriler = self.db.kategori_istatistik()
+        if not veriler: return
+        kategoriler = [dict(v)['kategori'] for v in veriler]
+        musait    = [dict(v)['musait'] for v in veriler]
+        oduncte   = [dict(v)['oduncte'] for v in veriler]
+        kisalt = lambda s: s[:10]+"…" if len(s)>11 else s
+        etiketler = [kisalt(k) for k in kategoriler]
+        fig, ax = plt.subplots(figsize=(9, 2.4))
+        fig.patch.set_facecolor('#F0FAF4')
+        ax.set_facecolor('#F0FAF4')
+        x = range(len(etiketler)); w = 0.4
+        ax.bar([i-w/2 for i in x], musait,  width=w, label='Müsait',  color='#68D391')
+        ax.bar([i+w/2 for i in x], oduncte, width=w, label='Ödünçte', color='#F6AD55')
+        ax.set_xticks(list(x)); ax.set_xticklabels(etiketler, fontsize=8)
+        ax.set_ylabel('Adet', fontsize=8); ax.legend(fontsize=8)
+        ax.set_title('Kategori Bazlı Ekipman Durumu', fontsize=10, color='#22543D')
+        ax.tick_params(labelsize=8); ax.spines[['top','right']].set_visible(False)
+        plt.tight_layout(pad=0.5)
+        buf = io.BytesIO(); fig.savefig(buf, format='png', dpi=100); plt.close(fig); buf.seek(0)
+        pix = QPixmap(); pix.loadFromData(buf.read())
+        self.grafik_lbl.setPixmap(pix.scaledToWidth(self.grafik_lbl.width()-10, Qt.SmoothTransformation))
 
     def _zimmet_ac(self): ZimmetVerPenceresi(self.db).exec_(); self._guncelle()
     def _gecmis_ac(self): GecmisPenceresi(self.db).exec_(); self._guncelle()
