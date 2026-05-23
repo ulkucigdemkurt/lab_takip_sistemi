@@ -7,18 +7,59 @@ from PyQt5.QtWidgets import (
     QTreeWidget, QTreeWidgetItem, QListWidget, QListWidgetItem,
     QMessageBox, QGridLayout, QSizePolicy, QAbstractItemView, QFileDialog
 )
-from PyQt5.QtCore import QDate, Qt
-from PyQt5.QtGui import QColor, QFont, QPixmap
-import matplotlib
-matplotlib.use('Agg')
+from PyQt5.QtCore import QDate, Qt, QTimer
+from PyQt5.QtGui import QColor, QFont, QPixmap, QImage
+import matplotlib; matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from reportlab.lib.pagesizes import A4
+import reportlab.lib.pagesizes as pgsz
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Spacer, Image, Paragraph
 from reportlab.lib import colors
 from reportlab.lib.units import cm
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Spacer, Image, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from tasarim import STIL_KODU
+
+def _font_kaydet():
+    adaylar = [
+        ("C:/Windows/Fonts/arial.ttf",    "C:/Windows/Fonts/arialbd.ttf"),
+        ("C:/Windows/Fonts/calibri.ttf",  "C:/Windows/Fonts/calibrib.ttf"),
+        ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+    ]
+    for normal, kalin in adaylar:
+        if os.path.exists(normal):
+            pdfmetrics.registerFont(TTFont('TRFont', normal))
+            pdfmetrics.registerFont(TTFont('TRFont-Bold', kalin if os.path.exists(kalin) else normal))
+            return True
+    return False
+_FONT_OK = _font_kaydet()
+
+def _pdf_stiller():
+    st = getSampleStyleSheet()
+    fn = 'TRFont' if _FONT_OK else 'Helvetica'
+    fb = 'TRFont-Bold' if _FONT_OK else 'Helvetica-Bold'
+    st.add(ParagraphStyle('Baslik', fontName=fb, fontSize=16, alignment=TA_CENTER, textColor=colors.HexColor('#22543D'), spaceAfter=4))
+    st.add(ParagraphStyle('AltBaslik', fontName=fb, fontSize=11, textColor=colors.HexColor('#276749'), spaceBefore=8, spaceAfter=4))
+    st.add(ParagraphStyle('Kucuk', fontName=fn, fontSize=9))
+    return st
+
+def _pdf_tablo_stili():
+    fb = 'TRFont-Bold' if _FONT_OK else 'Helvetica-Bold'
+    fn = 'TRFont' if _FONT_OK else 'Helvetica'
+    return TableStyle([
+        ('BACKGROUND',    (0,0), (-1,0), colors.HexColor('#C6F6D5')),
+        ('TEXTCOLOR',     (0,0), (-1,0), colors.HexColor('#22543D')),
+        ('FONTNAME',      (0,0), (-1,0), fb),
+        ('FONTNAME',      (0,1), (-1,-1), fn),
+        ('FONTSIZE',      (0,0), (-1,-1), 8),
+        ('ALIGN',         (0,0), (-1,-1), 'CENTER'),
+        ('ROWBACKGROUNDS',(0,1), (-1,-1), [colors.white, colors.HexColor('#F0FAF4')]),
+        ('GRID',          (0,0), (-1,-1), 0.4, colors.HexColor('#C6F6D5')),
+        ('TOPPADDING',    (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+    ])
 
 def tablo_doldur(tablo, veriler, sutunlar):
     tablo.setSortingEnabled(False); tablo.setRowCount(len(veriler))
@@ -30,6 +71,7 @@ def tablo_doldur(tablo, veriler, sutunlar):
             item.setTextAlignment(Qt.AlignCenter); tablo.setItem(r, c, item)
     tablo.setSortingEnabled(True)
 
+# ── VERİTABANI ───────────────────────────────────────────────────────────────
 class DB:
     def __init__(self):
         self.dosya = os.path.join(os.path.dirname(os.path.abspath(__file__)), "veri_tabani.db")
@@ -48,15 +90,13 @@ class DB:
         if kat and kat != "Tümü": sql += " AND kategori=?"; p.append(kat)
         return self._q(sql + " ORDER BY kategori, isim", tuple(p))
     def ekipman_bilgisi(self, id_):
-        r = self._q("SELECT * FROM ekipmanlar WHERE id=?", (id_,))
-        return r[0] if r else None
+        r = self._q("SELECT * FROM ekipmanlar WHERE id=?", (id_,)); return r[0] if r else None
     def ekipman_ekle(self, s, i, k, a): self._r("INSERT INTO ekipmanlar (seri_no,isim,kategori,toplam_adet,musait_adet,bakim_durumu) VALUES (?,?,?,?,?,'Müsait')", (s,i,k,a,a))
     def ekipman_guncelle(self, id_, i, k, a):
         with sqlite3.connect(self.dosya) as b:
             b.row_factory = sqlite3.Row
             aktif = b.execute("SELECT COALESCE(SUM(adet),0) c FROM zimmetler WHERE ekipman_id=? AND durum='Aktif'", (id_,)).fetchone()['c']
-            if a < aktif:
-                raise ValueError(f"Toplam adet aktif zimmetten az olamaz. Aktif zimmet: {aktif}")
+            if a < aktif: raise ValueError(f"Toplam adet aktif zimmetten az olamaz. Aktif zimmet: {aktif}")
             b.execute("UPDATE ekipmanlar SET isim=?,kategori=?,toplam_adet=?,musait_adet=? WHERE id=?", (i,k,a,a-aktif,id_))
     def ekipman_durum_guncelle(self, id_, durum): self._r("UPDATE ekipmanlar SET bakim_durumu=? WHERE id=?", (durum,id_))
     def ekipman_sil(self, id_): self._r("UPDATE ekipmanlar SET is_active=0 WHERE id=?", (id_,))
@@ -84,8 +124,7 @@ class DB:
         return self._q("SELECT k.* FROM proje_ogrencileri po JOIN kullanicilar k ON po.ogrenci_id=k.id WHERE po.proje_id=? AND k.is_active=1", (id_,))
     def proje_ekle(self, i, d, ogrs):
         with sqlite3.connect(self.dosya) as b:
-            c = b.execute("INSERT INTO projeler (isim,danisman_id) VALUES (?,?)", (i,d))
-            pid = c.lastrowid
+            pid = b.execute("INSERT INTO projeler (isim,danisman_id) VALUES (?,?)", (i,d)).lastrowid
             b.executemany("INSERT INTO proje_ogrencileri (proje_id,ogrenci_id) VALUES (?,?)", [(pid,o) for o in ogrs])
     def proje_guncelle(self, id_, i, d, ogrs):
         with sqlite3.connect(self.dosya) as b:
@@ -110,40 +149,29 @@ class DB:
         with sqlite3.connect(self.dosya) as b:
             b.row_factory = sqlite3.Row
             e = b.execute("SELECT musait_adet,bakim_durumu,is_active FROM ekipmanlar WHERE id=?", (e_id,)).fetchone()
-            if not e or not e['is_active']:
-                raise ValueError("Cihaz bulunamadi.")
-            if e['bakim_durumu'] != "Müsait":
-                raise ValueError(f"Cihaz zimmetlenemez. Bakim durumu: {e['bakim_durumu']}")
-            if e['musait_adet'] < adet:
-                raise ValueError(f"Stok yetersiz! (Kalan: {e['musait_adet']})")
+            if not e or not e['is_active']: raise ValueError("Cihaz bulunamadı.")
+            if e['bakim_durumu'] != "Müsait": raise ValueError(f"Cihaz zimmetlenemez. Bakım durumu: {e['bakim_durumu']}")
+            if e['musait_adet'] < adet: raise ValueError(f"Stok yetersiz! (Kalan: {e['musait_adet']})")
             b.execute("INSERT INTO zimmetler (ekipman_id,kullanici_id,proje_id,adet,verilis_tarihi,iade_tarihi) VALUES (?,?,?,?,?,?)", (e_id,k_id,proje_id,adet,str(date.today()),iade))
             b.execute("UPDATE ekipmanlar SET musait_adet=musait_adet-? WHERE id=?", (adet,e_id))
     def iade_al(self, z_id, e_id, adet):
         with sqlite3.connect(self.dosya) as b:
             b.row_factory = sqlite3.Row
             z = b.execute("SELECT ekipman_id,adet,durum FROM zimmetler WHERE id=?", (z_id,)).fetchone()
-            if not z:
-                raise ValueError("Zimmet kaydi bulunamadi.")
-            if z['durum'] != "Aktif":
-                raise ValueError("Bu cihaz zaten iade edilmis.")
-            if z['ekipman_id'] != e_id or z['adet'] != adet:
-                raise ValueError("Secili zimmet bilgisi guncel degil.")
-            b.execute("UPDATE zimmetler SET durum='\u0130ade Edildi',gercek_iade_tarihi=? WHERE id=?", (str(date.today()),z_id))
+            if not z: raise ValueError("Zimmet kaydı bulunamadı.")
+            if z['durum'] != "Aktif": raise ValueError("Bu cihaz zaten iade edilmiş.")
+            if z['ekipman_id'] != e_id or z['adet'] != adet: raise ValueError("Seçili zimmet bilgisi güncel değil.")
+            b.execute("UPDATE zimmetler SET durum='İade Edildi',gercek_iade_tarihi=? WHERE id=?", (str(date.today()),z_id))
             b.execute("UPDATE ekipmanlar SET musait_adet=musait_adet+? WHERE id=?", (adet,e_id))
     def kategori_istatistik(self):
-        return self._q("""SELECT kategori,
-            SUM(musait_adet) AS musait, SUM(toplam_adet-musait_adet) AS oduncte, SUM(toplam_adet) AS toplam
-            FROM ekipmanlar WHERE is_active=1 GROUP BY kategori ORDER BY kategori""")
-
-    def en_cok_zimmetlenen(self, limit=5):
-        return self._q("""SELECT e.isim, COUNT(*) AS zimmet_sayisi, SUM(z.adet) AS toplam_adet
-            FROM zimmetler z JOIN ekipmanlar e ON z.ekipman_id=e.id
-            GROUP BY z.ekipman_id ORDER BY zimmet_sayisi DESC LIMIT ?""", (limit,))
-
+        return self._q("SELECT kategori, SUM(musait_adet) m, SUM(toplam_adet-musait_adet) o, SUM(toplam_adet) t FROM ekipmanlar WHERE is_active=1 GROUP BY kategori ORDER BY kategori")
+    def en_cok_zimmetlenen(self, n=5):
+        return self._q("SELECT e.isim, COUNT(*) say, SUM(z.adet) adet FROM zimmetler z JOIN ekipmanlar e ON z.ekipman_id=e.id GROUP BY z.ekipman_id ORDER BY say DESC LIMIT ?", (n,))
     def istatistik(self):
         return {"ekipman": self._q("SELECT COUNT(*) c FROM ekipmanlar WHERE is_active=1")[0]['c'],
                 "zimmet":  self._q("SELECT COUNT(*) c FROM zimmetler WHERE durum='Aktif'")[0]['c']}
 
+# ── EKIPMAN ──────────────────────────────────────────────────────────────────
 class EkipmanPencere(QDialog):
     KATS = ["Sarf Malzeme","Mikrodenetleyici","Demirbaş Cihaz","El Aleti","Sensörler","Kablo ve Bağlantı"]
     DURUMLAR = ["Müsait","Arızalı","Tamirde","Kalibrasyonda","Pil Değişimi Gerekli"]
@@ -158,8 +186,8 @@ class EkipmanPencere(QDialog):
         self.kat = QComboBox(); self.kat.addItems(self.KATS)
         self.adet = QSpinBox(); self.adet.setRange(1,1000)
         self.durum_combo = QComboBox(); self.durum_combo.addItems(self.DURUMLAR)
-        f.addRow("Seri No:", self.seri); f.addRow("İsim:", self.isim); f.addRow("Kategori:", self.kat); f.addRow("Adet:", self.adet)
-        f.addRow("Bakım Durumu:", self.durum_combo)
+        f.addRow("Seri No:", self.seri); f.addRow("İsim:", self.isim); f.addRow("Kategori:", self.kat)
+        f.addRow("Adet:", self.adet); f.addRow("Bakım Durumu:", self.durum_combo)
         for lbl, fn in [("Ekle",self._ekle),("Güncelle",self._guncelle)]:
             b = QPushButton(lbl); b.clicked.connect(fn); f.addRow(b)
         hb = QHBoxLayout(); bs = QPushButton("Sil"); bs.setObjectName("red_btn"); bs.clicked.connect(self._sil)
@@ -171,24 +199,17 @@ class EkipmanPencere(QDialog):
         ust.addWidget(QLabel("Ara:")); ust.addWidget(self.ara,2); ust.addWidget(QLabel("Kategori:")); ust.addWidget(self.filtre)
         self.tablo = QTableWidget(); self.tablo.setColumnCount(7)
         self.tablo.setHorizontalHeaderLabels(["ID","Seri No","İsim","Kategori","Toplam","Müsait","Bakım Durumu"]); self.tablo.setColumnHidden(0,True)
-        h = self.tablo.horizontalHeader()
-        h.setSectionResizeMode(QHeaderView.Stretch)
-        h.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        h.setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        h.setSectionResizeMode(5, QHeaderView.ResizeToContents)
-        h.setSectionResizeMode(6, QHeaderView.Fixed); self.tablo.setColumnWidth(6, 200)
+        h = self.tablo.horizontalHeader(); h.setSectionResizeMode(QHeaderView.Stretch)
+        h.setSectionResizeMode(1, QHeaderView.ResizeToContents); h.setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        h.setSectionResizeMode(5, QHeaderView.ResizeToContents); h.setSectionResizeMode(6, QHeaderView.Fixed); self.tablo.setColumnWidth(6, 200)
         self.tablo.setSelectionBehavior(QTableWidget.SelectRows); self.tablo.setEditTriggers(QTableWidget.NoEditTriggers); self.tablo.clicked.connect(self._sec)
         sag.addLayout(ust); sag.addWidget(self.tablo); lay.addLayout(sag,2); self._listele()
 
     def _listele(self):
-        veriler = self.db.ekipmanlari_getir(self.ara.text(), self.filtre.currentText())
-        tablo_doldur(self.tablo, veriler, ["id","seri_no","isim","kategori","toplam_adet","musait_adet","bakim_durumu"])
+        tablo_doldur(self.tablo, self.db.ekipmanlari_getir(self.ara.text(), self.filtre.currentText()), ["id","seri_no","isim","kategori","toplam_adet","musait_adet","bakim_durumu"])
         for r in range(self.tablo.rowCount()):
             item = self.tablo.item(r,6)
-            if item:
-                renk = self.DURUM_RENK.get(item.text(), "#1A202C")
-                item.setForeground(QColor(renk)); item.setFont(QFont("Segoe UI",10,QFont.Bold))
-
+            if item: item.setForeground(QColor(self.DURUM_RENK.get(item.text(),"#1A202C"))); item.setFont(QFont("Segoe UI",10,QFont.Bold))
     def _sec(self):
         r = self.tablo.currentRow()
         if r >= 0:
@@ -197,28 +218,22 @@ class EkipmanPencere(QDialog):
             self.adet.setValue(int(self.tablo.item(r,4).text()))
             d = self.tablo.item(r,6).text() if self.tablo.item(r,6) else "Müsait"
             self.durum_combo.setCurrentText(d if d in self.DURUMLAR else "Müsait")
-
     def _ekle(self):
         if not self.seri.text() or not self.isim.text(): return
         try: self.db.ekipman_ekle(self.seri.text(),self.isim.text(),self.kat.currentText(),self.adet.value()); self._temizle(); self._listele()
         except sqlite3.IntegrityError: QMessageBox.critical(self,"Hata","Bu Seri No mevcut!")
-
     def _guncelle(self):
         if not self.sid: return
-        try:
-            self.db.ekipman_guncelle(self.sid,self.isim.text(),self.kat.currentText(),self.adet.value())
-            self.db.ekipman_durum_guncelle(self.sid, self.durum_combo.currentText())
-        except ValueError as hata:
-            return QMessageBox.warning(self,"Hata",str(hata))
+        try: self.db.ekipman_guncelle(self.sid,self.isim.text(),self.kat.currentText(),self.adet.value()); self.db.ekipman_durum_guncelle(self.sid,self.durum_combo.currentText())
+        except ValueError as e: return QMessageBox.warning(self,"Hata",str(e))
         self._temizle(); self._listele()
-
     def _sil(self):
         if not self.sid: return
         if self.db.zimmet_var_mi_ekipman(self.sid): return QMessageBox.warning(self,"Hata","Cihaz zimmetli, önce iade alın.")
         if QMessageBox.question(self,"Sil","Pasife al?") == QMessageBox.Yes: self.db.ekipman_sil(self.sid); self._temizle(); self._listele()
-
     def _temizle(self): self.sid=None; self.seri.clear(); self.isim.clear(); self.adet.setValue(1); self.durum_combo.setCurrentIndex(0)
 
+# ── KULLANICI ─────────────────────────────────────────────────────────────────
 class KullaniciPencere(QDialog):
     def __init__(self, db):
         super().__init__(); self.db = db; self.sid = None
@@ -258,6 +273,7 @@ class KullaniciPencere(QDialog):
         if QMessageBox.question(self,"Sil","Pasife al?") == QMessageBox.Yes: self.db.kullanici_sil(self.sid); self._temizle(); self._listele()
     def _temizle(self): self.sid=None; self.ad.clear(); self.soyad.clear(); self.no.clear()
 
+# ── PROJE ─────────────────────────────────────────────────────────────────────
 class ProjePencere(QDialog):
     def __init__(self, db):
         super().__init__(); self.db = db; self.sid = None
@@ -310,6 +326,7 @@ class ProjePencere(QDialog):
         if QMessageBox.question(self,"Sil","Pasife al?") == QMessageBox.Yes: self.db.proje_sil(self.sid); self._temizle(); self._listele()
     def _temizle(self): self.sid=None; self.proje_adi.clear(); self.danisman.setCurrentIndex(0); self.ogrenciler.clearSelection()
 
+# ── ZİMMET VER ────────────────────────────────────────────────────────────────
 class ZimmetVerPenceresi(QDialog):
     def __init__(self, db):
         super().__init__(); self.db = db
@@ -321,7 +338,8 @@ class ZimmetVerPenceresi(QDialog):
         self.lbl = QLabel("Ağaçtan seçin..."); self.lbl.setStyleSheet("color:#2B6CB0;font-weight:bold;")
         self.kullanici = QComboBox(); self.proje = QComboBox(); self.adet = QSpinBox(); self.adet.setMinimum(1); self.adet.setEnabled(False)
         self.tarih = QDateEdit(); self.tarih.setCalendarPopup(True); self.tarih.setDate(QDate.currentDate().addDays(7))
-        sag.addRow("Seçili:", self.lbl); sag.addRow("Kullanıcı:", self.kullanici); sag.addRow("Proje:", self.proje); sag.addRow("Adet:", self.adet); sag.addRow("İade:", self.tarih)
+        sag.addRow("Seçili:", self.lbl); sag.addRow("Kullanıcı:", self.kullanici); sag.addRow("Proje:", self.proje)
+        sag.addRow("Adet:", self.adet); sag.addRow("İade:", self.tarih)
         btn = QPushButton("📤 Zimmetle"); btn.clicked.connect(self._zimmetle); sag.addRow(btn)
         ust.addLayout(sag,1); lay.addLayout(ust)
         self.tablo = QTableWidget(); self.tablo.setColumnCount(7)
@@ -354,8 +372,7 @@ class ZimmetVerPenceresi(QDialog):
         sec = self.agac.selectedItems()
         if not sec or sec[0].childCount() > 0: self.adet.setEnabled(False); return
         e = self.db.ekipman_bilgisi(sec[0].data(0,Qt.UserRole))
-        if not e:
-            self.adet.setEnabled(False); return QMessageBox.warning(self,"Hata","Cihaz bulunamadi.")
+        if not e: self.adet.setEnabled(False); return
         self.lbl.setText(f"{e['isim']} (Stok: {e['musait_adet']})")
         if e['musait_adet'] > 0 and e['bakim_durumu'] == "Müsait": self.adet.setEnabled(True); self.adet.setMaximum(e['musait_adet'])
         else: self.adet.setEnabled(False); self.adet.setValue(1)
@@ -363,16 +380,12 @@ class ZimmetVerPenceresi(QDialog):
     def _zimmetle(self):
         if not self.agac.selectedItems() or self.agac.selectedItems()[0].childCount() > 0: return QMessageBox.warning(self,"Hata","Cihaz seçin.")
         if self.kullanici.count() == 0: return QMessageBox.warning(self,"Hata","Kayıtlı kullanıcı yok.")
-        e_id = self.agac.selectedItems()[0].data(0,Qt.UserRole); e = self.db.ekipman_bilgisi(e_id)
-        if not e: return QMessageBox.critical(self,"Hata","Cihaz bulunamadi.")
-        if e['bakim_durumu'] != "Müsait": return QMessageBox.critical(self,"Hata",f"Cihaz zimmetlenemez. Bakim durumu: {e['bakim_durumu']}")
-        if e['musait_adet'] < self.adet.value(): return QMessageBox.critical(self,"Hata",f"Stok yetersiz! (Kalan: {e['musait_adet']})")
-        try:
-            self.db.zimmet_ekle(e_id, self.kullanici.currentData(), self.adet.value(), self.tarih.date().toString("yyyy-MM-dd"), self.proje.currentData())
-        except ValueError as hata:
-            return QMessageBox.critical(self,"Hata",str(hata))
+        e_id = self.agac.selectedItems()[0].data(0,Qt.UserRole)
+        try: self.db.zimmet_ekle(e_id, self.kullanici.currentData(), self.adet.value(), self.tarih.date().toString("yyyy-MM-dd"), self.proje.currentData())
+        except ValueError as e: return QMessageBox.critical(self,"Hata",str(e))
         QMessageBox.information(self,"Başarılı","Zimmetlendi."); self._yukle()
 
+# ── GEÇMİŞ VE İADE ───────────────────────────────────────────────────────────
 class GecmisPenceresi(QDialog):
     def __init__(self, db):
         super().__init__(); self.db = db
@@ -400,10 +413,8 @@ class GecmisPenceresi(QDialog):
         r = self.tablo.currentRow()
         if r < 0: return QMessageBox.warning(self,"Hata","Kayıt seçin.")
         if self.tablo.item(r,9).text() != "Aktif": return QMessageBox.warning(self,"Uyarı","Zaten iade edilmiş.")
-        try:
-            self.db.iade_al(int(self.tablo.item(r,0).text()), int(self.tablo.item(r,1).text()), int(self.tablo.item(r,3).text()))
-        except ValueError as hata:
-            return QMessageBox.critical(self,"Hata",str(hata))
+        try: self.db.iade_al(int(self.tablo.item(r,0).text()), int(self.tablo.item(r,1).text()), int(self.tablo.item(r,3).text()))
+        except ValueError as e: return QMessageBox.critical(self,"Hata",str(e))
         QMessageBox.information(self,"Başarılı","Cihaz teslim alındı."); self._doldur()
 
     def _filtrele(self, text):
@@ -425,121 +436,52 @@ class GecmisPenceresi(QDialog):
         except Exception as e: QMessageBox.critical(self,"Hata",str(e))
 
     def _pdf(self):
-        yol, _ = QFileDialog.getSaveFileName(self, "PDF Kaydet", "lab_raporu.pdf", "PDF (*.pdf)")
+        yol, _ = QFileDialog.getSaveFileName(self,"PDF Kaydet","lab_raporu.pdf","PDF (*.pdf)")
         if not yol: return
         try:
-            doc = SimpleDocTemplate(yol, pagesize=A4,
-                topMargin=1.5*cm, bottomMargin=1.5*cm,
-                leftMargin=1.5*cm, rightMargin=1.5*cm)
-            stiller = getSampleStyleSheet()
-            baslik_stili = ParagraphStyle('merkez', parent=stiller['Title'], alignment=TA_CENTER, textColor=colors.HexColor('#22543D'))
-            alt_baslik = ParagraphStyle('alt', parent=stiller['Heading2'], textColor=colors.HexColor('#276749'))
-            hikaye = []
-
-            hikaye.append(Paragraph("BAUN Laboratuvar Takip Sistemi", baslik_stili))
-            hikaye.append(Paragraph(f"Rapor Tarihi: {__import__('datetime').date.today().strftime('%d.%m.%Y')}",
-                                    stiller['Normal']))
-            hikaye.append(Spacer(1, 0.5*cm))
-
-            # ── Grafik
-            from datetime import date as dt
+            doc = SimpleDocTemplate(yol, pagesize=pgsz.A4, topMargin=1.5*cm, bottomMargin=1.5*cm, leftMargin=1.5*cm, rightMargin=1.5*cm)
+            st = _pdf_stiller(); ts = _pdf_tablo_stili(); h = []
+            h.append(Paragraph("BAUN Laboratuvar Takip Sistemi", st['Baslik']))
+            h.append(Paragraph(f"Rapor Tarihi: {date.today().strftime('%d.%m.%Y')}", st['Kucuk']))
+            h.append(Spacer(1, 0.5*cm))
             veriler = self.db.kategori_istatistik()
             if veriler:
-                kategoriler = [dict(v)['kategori'] for v in veriler]
-                musait  = [dict(v)['musait']  for v in veriler]
-                oduncte = [dict(v)['oduncte'] for v in veriler]
+                kats=[dict(v)['kategori'] for v in veriler]; m=[dict(v)['m'] for v in veriler]; o=[dict(v)['o'] for v in veriler]
                 kisalt = lambda s: s[:9]+"…" if len(s)>10 else s
-                fig, ax = plt.subplots(figsize=(7, 3))
-                x = range(len(kategoriler)); bw = 0.36
-                ax.bar([i-bw/2 for i in x], musait,  width=bw, label='Müsait',  color='#68D391')
-                ax.bar([i+bw/2 for i in x], oduncte, width=bw, label='Ödünçte', color='#F6AD55')
-                ax.set_xticks(list(x)); ax.set_xticklabels([kisalt(k) for k in kategoriler], fontsize=8)
-                ax.set_ylabel('Adet', fontsize=8); ax.legend(fontsize=8)
-                ax.set_title('Kategori Bazlı Ekipman Kullanım Durumu', fontsize=10, color='#22543D')
-                ax.spines[['top','right']].set_visible(False); ax.yaxis.grid(True, alpha=0.3)
-                plt.tight_layout(pad=0.5)
-                buf = io.BytesIO(); fig.savefig(buf, format='png', dpi=120); plt.close(fig); buf.seek(0)
-                hikaye.append(Image(buf, width=15*cm, height=6.5*cm))
-            hikaye.append(Spacer(1, 0.5*cm))
-
-            # ── Kategori özet tablosu
-            hikaye.append(Paragraph("Envanter Özeti (Kategorilere Göre)", alt_baslik))
-            hikaye.append(Spacer(1, 0.2*cm))
+                fig, ax = plt.subplots(figsize=(7,3)); x=range(len(kats)); w=0.36
+                ax.bar([i-w/2 for i in x],m,w,label='Müsait',color='#68D391'); ax.bar([i+w/2 for i in x],o,w,label='Ödünçte',color='#F6AD55')
+                ax.set_xticks(list(x)); ax.set_xticklabels([kisalt(k) for k in kats],fontsize=8)
+                ax.set_ylabel('Adet',fontsize=8); ax.legend(fontsize=8); ax.set_title('Ekipman Kullanım Durumu',fontsize=10)
+                ax.spines[['top','right']].set_visible(False); ax.yaxis.grid(True,alpha=0.3); plt.tight_layout(pad=0.5)
+                buf=io.BytesIO(); fig.savefig(buf,format='png',dpi=120); plt.close(fig); buf.seek(0)
+                h.append(Image(buf,width=14*cm,height=6*cm))
+            h.append(Spacer(1,0.4*cm))
+            h.append(Paragraph("Envanter Özeti", st['AltBaslik']))
             if veriler:
-                kat_data = [["Kategori", "Toplam", "Müsait", "Ödünçte", "Doluluk %"]]
+                rows=[["Kategori","Toplam","Müsait","Ödünçte","Doluluk %"]]
                 for v in veriler:
-                    d = dict(v)
-                    oran = f"%{round(d['oduncte']*100/d['toplam'])}" if d['toplam'] else "0"
-                    kat_data.append([d['kategori'], str(d['toplam']), str(d['musait']), str(d['oduncte']), oran])
-                t1 = Table(kat_data, repeatRows=1, colWidths=[5.5*cm, 2*cm, 2*cm, 2.5*cm, 2.5*cm])
-                t1.setStyle(TableStyle([
-                    ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#C6F6D5')),
-                    ('TEXTCOLOR',  (0,0), (-1,0), colors.HexColor('#22543D')),
-                    ('FONTNAME',   (0,0), (-1,0), 'Helvetica-Bold'),
-                    ('FONTSIZE',   (0,0), (-1,-1), 8),
-                    ('ALIGN',      (0,0), (-1,-1), 'CENTER'),
-                    ('ALIGN',      (0,1), (0,-1), 'LEFT'),
-                    ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F0FAF4')]),
-                    ('GRID',       (0,0), (-1,-1), 0.4, colors.HexColor('#C6F6D5')),
-                    ('TOPPADDING', (0,0), (-1,-1), 4), ('BOTTOMPADDING', (0,0), (-1,-1), 4),
-                ]))
-                hikaye.append(t1)
-            hikaye.append(Spacer(1, 0.5*cm))
-
-            # ── En çok zimmetlenen
-            hikaye.append(Paragraph("En Çok Zimmetlenen Ekipmanlar", alt_baslik))
-            hikaye.append(Spacer(1, 0.2*cm))
-            top = self.db.en_cok_zimmetlenen(5)
+                    d=dict(v); oran=f"%{round(d['o']*100/d['t'])}" if d['t'] else "%0"
+                    rows.append([d['kategori'],str(d['t']),str(d['m']),str(d['o']),oran])
+                h.append(Table(rows,repeatRows=1,colWidths=[6*cm,2.2*cm,2.2*cm,2.5*cm,2.5*cm],style=ts))
+            h.append(Spacer(1,0.4*cm))
+            h.append(Paragraph("En Çok Zimmetlenen Ekipmanlar", st['AltBaslik']))
+            top=self.db.en_cok_zimmetlenen()
             if top:
-                top_data = [["Ekipman", "Zimmet Sayısı", "Toplam Adet"]]
-                for v in top:
-                    d = dict(v); top_data.append([d['isim'], str(d['zimmet_sayisi']), str(d['toplam_adet'])])
-                t2 = Table(top_data, repeatRows=1, colWidths=[8*cm, 4*cm, 3*cm])
-                t2.setStyle(TableStyle([
-                    ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#C6F6D5')),
-                    ('TEXTCOLOR',  (0,0), (-1,0), colors.HexColor('#22543D')),
-                    ('FONTNAME',   (0,0), (-1,0), 'Helvetica-Bold'),
-                    ('FONTSIZE',   (0,0), (-1,-1), 8),
-                    ('ALIGN',      (0,0), (-1,-1), 'CENTER'),
-                    ('ALIGN',      (0,1), (0,-1), 'LEFT'),
-                    ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F0FAF4')]),
-                    ('GRID',       (0,0), (-1,-1), 0.4, colors.HexColor('#C6F6D5')),
-                    ('TOPPADDING', (0,0), (-1,-1), 4), ('BOTTOMPADDING', (0,0), (-1,-1), 4),
-                ]))
-                hikaye.append(t2)
-            hikaye.append(Spacer(1, 0.5*cm))
-
-            # ── Aktif zimmetler tablosu
-            hikaye.append(Paragraph("Aktif Zimmetler", alt_baslik))
-            hikaye.append(Spacer(1, 0.2*cm))
-            aktif = self.db.aktif_zimmetler()
+                rows=[["Ekipman","Zimmet Sayısı","Toplam Adet"]]+[[dict(v)['isim'],str(dict(v)['say']),str(dict(v)['adet'])] for v in top]
+                h.append(Table(rows,repeatRows=1,colWidths=[9*cm,4*cm,3*cm],style=ts))
+            h.append(Spacer(1,0.4*cm))
+            h.append(Paragraph("Aktif Zimmetler", st['AltBaslik']))
+            aktif=self.db.aktif_zimmetler()
             if aktif:
-                z_data = [["Cihaz", "Adet", "Kullanıcı", "Proje", "Veriliş", "İade"]]
-                for v in aktif:
-                    d = dict(v)
-                    z_data.append([d['ekipman_isim'], str(d['adet']), d['kullanici_isim'],
-                                   d.get('proje_isim','-'), d['verilis_tarihi'], d['iade_tarihi']])
-                t3 = Table(z_data, repeatRows=1)
-                t3.setStyle(TableStyle([
-                    ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#C6F6D5')),
-                    ('TEXTCOLOR',  (0,0), (-1,0), colors.HexColor('#22543D')),
-                    ('FONTNAME',   (0,0), (-1,0), 'Helvetica-Bold'),
-                    ('FONTSIZE',   (0,0), (-1,-1), 7),
-                    ('ALIGN',      (0,0), (-1,-1), 'CENTER'),
-                    ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F0FAF4')]),
-                    ('GRID',       (0,0), (-1,-1), 0.4, colors.HexColor('#C6F6D5')),
-                    ('TOPPADDING', (0,0), (-1,-1), 3), ('BOTTOMPADDING', (0,0), (-1,-1), 3),
-                ]))
-                hikaye.append(t3)
-            else:
-                hikaye.append(Paragraph("Aktif zimmet kaydı bulunmamaktadır.", stiller['Normal']))
+                rows=[["Cihaz","Adet","Kullanıcı","Proje","Veriliş","İade"]]
+                rows+=[[dict(v)['ekipman_isim'],str(dict(v)['adet']),dict(v)['kullanici_isim'],dict(v).get('proje_isim','-'),dict(v)['verilis_tarihi'],dict(v)['iade_tarihi']] for v in aktif]
+                h.append(Table(rows,repeatRows=1,style=ts))
+            else: h.append(Paragraph("Aktif zimmet kaydı bulunmamaktadır.", st['Kucuk']))
+            doc.build(h)
+            QMessageBox.information(self,"Başarılı","PDF raporu oluşturuldu.")
+        except Exception as e: QMessageBox.critical(self,"Hata",str(e))
 
-            doc.build(hikaye)
-            QMessageBox.information(self, "Başarılı", "PDF raporu oluşturuldu.")
-        except Exception as e:
-            QMessageBox.critical(self, "Hata", str(e))
-
-
+# ── ANA PENCERE ───────────────────────────────────────────────────────────────
 class AnaPencere(QMainWindow):
     def __init__(self):
         super().__init__(); self.db = DB()
@@ -550,77 +492,53 @@ class AnaPencere(QMainWindow):
 
         kart_lay = QHBoxLayout(); kart_lay.setSpacing(15); self.kart = {}
         for key, baslik, ikon, renk in [("ekipman","Laboratuvar Envanteri","📦","#3182CE"),("zimmet","Aktif Zimmet Sayısı","🔗","#DD6B20")]:
-            g = QGroupBox()
-            g.setStyleSheet(f"QGroupBox{{border: 1px solid #E2E8F0; border-top: 4px solid {renk}; border-radius: 8px; background: #FFFFFF; margin-top: 0; padding: 10px;}}")
+            g = QGroupBox(); g.setStyleSheet(f"QGroupBox{{border:1px solid #E2E8F0;border-top:4px solid {renk};border-radius:8px;background:#FFFFFF;margin-top:0;padding:10px;}}")
             hl = QHBoxLayout(g)
             ikon_lbl = QLabel(ikon); ikon_lbl.setStyleSheet("font-size:28px;"); ikon_lbl.setFixedWidth(44)
             sag = QVBoxLayout()
-            baslik_lbl = QLabel(baslik); baslik_lbl.setStyleSheet(f"font-size:12px;color:#718096;font-weight:bold;")
+            baslik_lbl = QLabel(baslik); baslik_lbl.setStyleSheet("font-size:12px;color:#718096;font-weight:bold;")
             sayi_lbl = QLabel("0"); sayi_lbl.setStyleSheet(f"font-size:28px;font-weight:bold;color:{renk};")
             sag.addWidget(baslik_lbl); sag.addWidget(sayi_lbl)
             hl.addWidget(ikon_lbl); hl.addLayout(sag)
             self.kart[key] = sayi_lbl; kart_lay.addWidget(g)
         lay.addLayout(kart_lay)
 
-        # Grafik alanı - sabit yükseklikte
-        from PyQt5.QtWidgets import QFrame
-        grafik_frame = QFrame()
-        grafik_frame.setStyleSheet("background:#FFFFFF; border:1px solid #C6F6D5; border-radius:8px;")
-        grafik_frame.setFixedHeight(280)
-        grafik_layout = QVBoxLayout(grafik_frame); grafik_layout.setContentsMargins(4,4,4,4)
         self.grafik_lbl = QLabel(); self.grafik_lbl.setAlignment(Qt.AlignCenter)
-        grafik_layout.addWidget(self.grafik_lbl)
-        lay.addWidget(grafik_frame, 1)
+        self.grafik_lbl.setStyleSheet("background:#FFF;border:1px solid #C6F6D5;border-radius:8px;")
+        self.grafik_lbl.setFixedHeight(220)
+        self.grafik_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        lay.addWidget(self.grafik_lbl)
 
-        MENU = [
-            ("📦","Zimmet Ver",self._zimmet_ac),
-            ("📜","Geçmiş ve İade",self._gecmis_ac),
-            ("🔧","Envanter",self._ekipman_ac),
-            ("👤","Kullanıcılar",self._kullanici_ac),
-            ("📂","Projeler",self._proje_ac),
-        ]
-        menu = QGridLayout(); menu.setSpacing(12)
+        MENU = [("📦","Zimmet Ver",self._zimmet_ac),("📜","Geçmiş ve İade",self._gecmis_ac),
+                ("🔧","Envanter",self._ekipman_ac),("👤","Kullanıcılar",self._kullanici_ac),("📂","Projeler",self._proje_ac)]
+        menu = QGridLayout(); menu.setSpacing(15)
         for i,(ikon,metin,fn) in enumerate(MENU):
-            b = QPushButton(f"{ikon}\n{metin}")
-            b.setFixedHeight(80)
-            b.setStyleSheet("QPushButton{font-size:13px; font-weight:bold; padding:8px; border: 1px solid #CBD5E0; border-radius: 8px; background-color: #FFFFFF; color: #2D3748;} QPushButton:hover{background-color:#F7FAFC; border: 1px solid #A0AEC0;}")
-            b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-            b.clicked.connect(fn); menu.addWidget(b,0,i)
+            b = QPushButton(f"{ikon}\n{metin}"); b.setFixedHeight(85)
+            b.setStyleSheet("QPushButton{font-size:13px;font-weight:bold;padding:8px;border:1px solid #CBD5E0;border-radius:8px;background:#FFFFFF;color:#2D3748;} QPushButton:hover{background:#F7FAFC;border:1px solid #A0AEC0;}")
+            b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed); b.clicked.connect(fn); menu.addWidget(b,0,i)
         lay.addLayout(menu)
         self._guncelle()
 
     def _grafik_ciz(self):
         veriler = self.db.kategori_istatistik()
-        if not veriler: return
-        w = max(self.grafik_lbl.width()-8, 600)
-        h_inch = 2.6; w_inch = w/100
-        kategoriler = [dict(v)['kategori'] for v in veriler]
-        musait  = [dict(v)['musait']  for v in veriler]
-        oduncte = [dict(v)['oduncte'] for v in veriler]
+        if not veriler or self.grafik_lbl.width() < 50: return
+        kats=[dict(v)['kategori'] for v in veriler]; musait=[dict(v)['m'] for v in veriler]; oduncte=[dict(v)['o'] for v in veriler]
         kisalt = lambda s: s[:9]+"…" if len(s)>10 else s
-        etiketler = [kisalt(k) for k in kategoriler]
-        fig, ax = plt.subplots(figsize=(w_inch, h_inch))
-        fig.patch.set_facecolor('#FFFFFF'); ax.set_facecolor('#FFFFFF')
-        x = range(len(etiketler)); bw = 0.38
-        ax.bar([i-bw/2 for i in x], musait,  width=bw, label='Müsait',  color='#68D391', zorder=3)
-        ax.bar([i+bw/2 for i in x], oduncte, width=bw, label='Ödünçte', color='#F6AD55', zorder=3)
-        ax.set_xticks(list(x)); ax.set_xticklabels(etiketler, fontsize=9)
-        ax.set_ylabel('Adet', fontsize=9); ax.legend(fontsize=9, framealpha=0.7)
-        ax.set_title('Kategori Bazlı Ekipman Durumu', fontsize=11, color='#22543D', pad=8)
-        ax.tick_params(labelsize=9); ax.spines[['top','right']].set_visible(False)
-        ax.yaxis.grid(True, alpha=0.3, zorder=0); ax.set_axisbelow(True)
-        plt.tight_layout(pad=0.6)
-        buf = io.BytesIO(); fig.savefig(buf, format='png', dpi=100); plt.close(fig); buf.seek(0)
-        pix = QPixmap(); pix.loadFromData(buf.read())
-        self.grafik_lbl.setPixmap(pix)
+        fig, ax = plt.subplots(figsize=(10, 2.2))
+        fig.patch.set_facecolor('#FFF'); ax.set_facecolor('#FFF')
+        x=range(len(kats)); bw=0.38
+        ax.bar([i-bw/2 for i in x],musait, bw,label='Müsait', color='#68D391',zorder=3)
+        ax.bar([i+bw/2 for i in x],oduncte,bw,label='Ödünçte',color='#F6AD55',zorder=3)
+        ax.set_xticks(list(x)); ax.set_xticklabels([kisalt(k) for k in kats],fontsize=9)
+        ax.set_ylabel('Adet',fontsize=9); ax.legend(fontsize=9,framealpha=0.7)
+        ax.set_title('Kategori Bazlı Ekipman Durumu',fontsize=11,color='#22543D',pad=6)
+        ax.spines[['top','right']].set_visible(False); ax.yaxis.grid(True,alpha=0.3); ax.set_axisbelow(True)
+        plt.tight_layout(pad=0.5)
+        buf=io.BytesIO(); fig.savefig(buf,format='png',dpi=100); plt.close(fig); buf.seek(0)
+        pix = QPixmap.fromImage(QImage.fromData(buf.read()))
+        self.grafik_lbl.setPixmap(pix.scaledToWidth(self.grafik_lbl.width()-4, Qt.SmoothTransformation))
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._grafik_ciz()
-
-    def showEvent(self, event):
-        super().showEvent(event)
-        self._grafik_ciz()
+    def showEvent(self, e): super().showEvent(e); QTimer.singleShot(50, self._grafik_ciz)
 
     def _guncelle(self):
         s = self.db.istatistik(); self.kart['ekipman'].setText(str(s['ekipman'])); self.kart['zimmet'].setText(str(s['zimmet']))
