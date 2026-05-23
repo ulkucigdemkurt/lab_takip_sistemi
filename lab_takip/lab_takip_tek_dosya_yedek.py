@@ -9,7 +9,6 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import QDate, Qt
 from PyQt5.QtGui import QColor, QFont, QPixmap
-from PyQt5.QtCore import QDate, Qt
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -17,7 +16,8 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import cm
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Spacer, Image, Paragraph
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_CENTER
 from tasarim import STIL_KODU
 
 def tablo_doldur(tablo, veriler, sutunlar):
@@ -131,8 +131,14 @@ class DB:
             b.execute("UPDATE zimmetler SET durum='\u0130ade Edildi',gercek_iade_tarihi=? WHERE id=?", (str(date.today()),z_id))
             b.execute("UPDATE ekipmanlar SET musait_adet=musait_adet+? WHERE id=?", (adet,e_id))
     def kategori_istatistik(self):
-        return self._q("""SELECT kategori, SUM(musait_adet) AS musait, SUM(toplam_adet-musait_adet) AS oduncte
+        return self._q("""SELECT kategori,
+            SUM(musait_adet) AS musait, SUM(toplam_adet-musait_adet) AS oduncte, SUM(toplam_adet) AS toplam
             FROM ekipmanlar WHERE is_active=1 GROUP BY kategori ORDER BY kategori""")
+
+    def en_cok_zimmetlenen(self, limit=5):
+        return self._q("""SELECT e.isim, COUNT(*) AS zimmet_sayisi, SUM(z.adet) AS toplam_adet
+            FROM zimmetler z JOIN ekipmanlar e ON z.ekipman_id=e.id
+            GROUP BY z.ekipman_id ORDER BY zimmet_sayisi DESC LIMIT ?""", (limit,))
 
     def istatistik(self):
         return {"ekipman": self._q("SELECT COUNT(*) c FROM ekipmanlar WHERE is_active=1")[0]['c'],
@@ -419,66 +425,115 @@ class GecmisPenceresi(QDialog):
         except Exception as e: QMessageBox.critical(self,"Hata",str(e))
 
     def _pdf(self):
-        yol, _ = QFileDialog.getSaveFileName(self, "PDF Kaydet", "zimmet_raporu.pdf", "PDF (*.pdf)")
+        yol, _ = QFileDialog.getSaveFileName(self, "PDF Kaydet", "lab_raporu.pdf", "PDF (*.pdf)")
         if not yol: return
         try:
-            doc = SimpleDocTemplate(yol, pagesize=A4, topMargin=1.5*cm, bottomMargin=1.5*cm)
+            doc = SimpleDocTemplate(yol, pagesize=A4,
+                topMargin=1.5*cm, bottomMargin=1.5*cm,
+                leftMargin=1.5*cm, rightMargin=1.5*cm)
             stiller = getSampleStyleSheet()
+            baslik_stili = ParagraphStyle('merkez', parent=stiller['Title'], alignment=TA_CENTER, textColor=colors.HexColor('#22543D'))
+            alt_baslik = ParagraphStyle('alt', parent=stiller['Heading2'], textColor=colors.HexColor('#276749'))
             hikaye = []
 
-            # Başlık
-            hikaye.append(Paragraph("<b>BAUN Laboratuvar Takip Sistemi – Zimmet Raporu</b>",
-                                    stiller['Title']))
-            hikaye.append(Paragraph(f"Tarih: {date.today().strftime('%d.%m.%Y')}",
+            hikaye.append(Paragraph("BAUN Laboratuvar Takip Sistemi", baslik_stili))
+            hikaye.append(Paragraph(f"Rapor Tarihi: {__import__('datetime').date.today().strftime('%d.%m.%Y')}",
                                     stiller['Normal']))
-            hikaye.append(Spacer(1, 0.4*cm))
+            hikaye.append(Spacer(1, 0.5*cm))
 
-            # Grafik
+            # ── Grafik
+            from datetime import date as dt
             veriler = self.db.kategori_istatistik()
             if veriler:
                 kategoriler = [dict(v)['kategori'] for v in veriler]
-                musait    = [dict(v)['musait'] for v in veriler]
-                oduncte   = [dict(v)['oduncte'] for v in veriler]
-                kisalt = lambda s: s[:10]+"…" if len(s)>11 else s
-                etiketler = [kisalt(k) for k in kategoriler]
-                fig, ax = plt.subplots(figsize=(7, 2.8))
-                x = range(len(etiketler)); w = 0.38
-                ax.bar([i-w/2 for i in x], musait,  width=w, label='Müsait',  color='#68D391')
-                ax.bar([i+w/2 for i in x], oduncte, width=w, label='Ödünçte', color='#F6AD55')
-                ax.set_xticks(list(x)); ax.set_xticklabels(etiketler, fontsize=8)
+                musait  = [dict(v)['musait']  for v in veriler]
+                oduncte = [dict(v)['oduncte'] for v in veriler]
+                kisalt = lambda s: s[:9]+"…" if len(s)>10 else s
+                fig, ax = plt.subplots(figsize=(7, 3))
+                x = range(len(kategoriler)); bw = 0.36
+                ax.bar([i-bw/2 for i in x], musait,  width=bw, label='Müsait',  color='#68D391')
+                ax.bar([i+bw/2 for i in x], oduncte, width=bw, label='Ödünçte', color='#F6AD55')
+                ax.set_xticks(list(x)); ax.set_xticklabels([kisalt(k) for k in kategoriler], fontsize=8)
                 ax.set_ylabel('Adet', fontsize=8); ax.legend(fontsize=8)
-                ax.set_title('Kategori Bazlı Ekipman Kullanım Durumu', fontsize=10)
-                ax.spines[['top','right']].set_visible(False); plt.tight_layout(pad=0.5)
+                ax.set_title('Kategori Bazlı Ekipman Kullanım Durumu', fontsize=10, color='#22543D')
+                ax.spines[['top','right']].set_visible(False); ax.yaxis.grid(True, alpha=0.3)
+                plt.tight_layout(pad=0.5)
                 buf = io.BytesIO(); fig.savefig(buf, format='png', dpi=120); plt.close(fig); buf.seek(0)
-                hikaye.append(Image(buf, width=14*cm, height=5.5*cm))
-                hikaye.append(Spacer(1, 0.4*cm))
+                hikaye.append(Image(buf, width=15*cm, height=6.5*cm))
+            hikaye.append(Spacer(1, 0.5*cm))
 
-            # Zimmet tablosu
-            hikaye.append(Paragraph("<b>Zimmet Kayıtları</b>", stiller['Heading2']))
+            # ── Kategori özet tablosu
+            hikaye.append(Paragraph("Envanter Özeti (Kategorilere Göre)", alt_baslik))
             hikaye.append(Spacer(1, 0.2*cm))
-            basliklar = ["Cihaz", "Adet", "Kullanıcı", "Proje", "Veriliş", "İade", "Durum"]
-            tablo_verisi = [basliklar]
-            for r in range(self.tablo.rowCount()):
-                if not self.tablo.isRowHidden(r):
-                    satirlar = []
-                    for c in [2, 3, 4, 5, 6, 7, 9]:
-                        item = self.tablo.item(r, c)
-                        satirlar.append(item.text() if item else "")
-                    tablo_verisi.append(satirlar)
+            if veriler:
+                kat_data = [["Kategori", "Toplam", "Müsait", "Ödünçte", "Doluluk %"]]
+                for v in veriler:
+                    d = dict(v)
+                    oran = f"%{round(d['oduncte']*100/d['toplam'])}" if d['toplam'] else "0"
+                    kat_data.append([d['kategori'], str(d['toplam']), str(d['musait']), str(d['oduncte']), oran])
+                t1 = Table(kat_data, repeatRows=1, colWidths=[5.5*cm, 2*cm, 2*cm, 2.5*cm, 2.5*cm])
+                t1.setStyle(TableStyle([
+                    ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#C6F6D5')),
+                    ('TEXTCOLOR',  (0,0), (-1,0), colors.HexColor('#22543D')),
+                    ('FONTNAME',   (0,0), (-1,0), 'Helvetica-Bold'),
+                    ('FONTSIZE',   (0,0), (-1,-1), 8),
+                    ('ALIGN',      (0,0), (-1,-1), 'CENTER'),
+                    ('ALIGN',      (0,1), (0,-1), 'LEFT'),
+                    ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F0FAF4')]),
+                    ('GRID',       (0,0), (-1,-1), 0.4, colors.HexColor('#C6F6D5')),
+                    ('TOPPADDING', (0,0), (-1,-1), 4), ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+                ]))
+                hikaye.append(t1)
+            hikaye.append(Spacer(1, 0.5*cm))
 
-            t = Table(tablo_verisi, repeatRows=1)
-            t.setStyle(TableStyle([
-                ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#C6F6D5')),
-                ('TEXTCOLOR',  (0,0), (-1,0), colors.HexColor('#22543D')),
-                ('FONTNAME',   (0,0), (-1,0), 'Helvetica-Bold'),
-                ('FONTSIZE',   (0,0), (-1,-1), 7),
-                ('ALIGN',      (0,0), (-1,-1), 'CENTER'),
-                ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F0FAF4')]),
-                ('GRID',       (0,0), (-1,-1), 0.4, colors.HexColor('#C6F6D5')),
-                ('TOPPADDING', (0,0), (-1,-1), 3),
-                ('BOTTOMPADDING', (0,0), (-1,-1), 3),
-            ]))
-            hikaye.append(t)
+            # ── En çok zimmetlenen
+            hikaye.append(Paragraph("En Çok Zimmetlenen Ekipmanlar", alt_baslik))
+            hikaye.append(Spacer(1, 0.2*cm))
+            top = self.db.en_cok_zimmetlenen(5)
+            if top:
+                top_data = [["Ekipman", "Zimmet Sayısı", "Toplam Adet"]]
+                for v in top:
+                    d = dict(v); top_data.append([d['isim'], str(d['zimmet_sayisi']), str(d['toplam_adet'])])
+                t2 = Table(top_data, repeatRows=1, colWidths=[8*cm, 4*cm, 3*cm])
+                t2.setStyle(TableStyle([
+                    ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#C6F6D5')),
+                    ('TEXTCOLOR',  (0,0), (-1,0), colors.HexColor('#22543D')),
+                    ('FONTNAME',   (0,0), (-1,0), 'Helvetica-Bold'),
+                    ('FONTSIZE',   (0,0), (-1,-1), 8),
+                    ('ALIGN',      (0,0), (-1,-1), 'CENTER'),
+                    ('ALIGN',      (0,1), (0,-1), 'LEFT'),
+                    ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F0FAF4')]),
+                    ('GRID',       (0,0), (-1,-1), 0.4, colors.HexColor('#C6F6D5')),
+                    ('TOPPADDING', (0,0), (-1,-1), 4), ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+                ]))
+                hikaye.append(t2)
+            hikaye.append(Spacer(1, 0.5*cm))
+
+            # ── Aktif zimmetler tablosu
+            hikaye.append(Paragraph("Aktif Zimmetler", alt_baslik))
+            hikaye.append(Spacer(1, 0.2*cm))
+            aktif = self.db.aktif_zimmetler()
+            if aktif:
+                z_data = [["Cihaz", "Adet", "Kullanıcı", "Proje", "Veriliş", "İade"]]
+                for v in aktif:
+                    d = dict(v)
+                    z_data.append([d['ekipman_isim'], str(d['adet']), d['kullanici_isim'],
+                                   d.get('proje_isim','-'), d['verilis_tarihi'], d['iade_tarihi']])
+                t3 = Table(z_data, repeatRows=1)
+                t3.setStyle(TableStyle([
+                    ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#C6F6D5')),
+                    ('TEXTCOLOR',  (0,0), (-1,0), colors.HexColor('#22543D')),
+                    ('FONTNAME',   (0,0), (-1,0), 'Helvetica-Bold'),
+                    ('FONTSIZE',   (0,0), (-1,-1), 7),
+                    ('ALIGN',      (0,0), (-1,-1), 'CENTER'),
+                    ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F0FAF4')]),
+                    ('GRID',       (0,0), (-1,-1), 0.4, colors.HexColor('#C6F6D5')),
+                    ('TOPPADDING', (0,0), (-1,-1), 3), ('BOTTOMPADDING', (0,0), (-1,-1), 3),
+                ]))
+                hikaye.append(t3)
+            else:
+                hikaye.append(Paragraph("Aktif zimmet kaydı bulunmamaktadır.", stiller['Normal']))
+
             doc.build(hikaye)
             QMessageBox.information(self, "Başarılı", "PDF raporu oluşturuldu.")
         except Exception as e:
@@ -507,11 +562,15 @@ class AnaPencere(QMainWindow):
             self.kart[key] = sayi_lbl; kart_lay.addWidget(g)
         lay.addLayout(kart_lay)
 
-        # ── Grafik ─────────────────────────────────
+        # Grafik alanı - sabit yükseklikte
+        from PyQt5.QtWidgets import QFrame
+        grafik_frame = QFrame()
+        grafik_frame.setStyleSheet("background:#FFFFFF; border:1px solid #C6F6D5; border-radius:8px;")
+        grafik_frame.setFixedHeight(280)
+        grafik_layout = QVBoxLayout(grafik_frame); grafik_layout.setContentsMargins(4,4,4,4)
         self.grafik_lbl = QLabel(); self.grafik_lbl.setAlignment(Qt.AlignCenter)
-        self.grafik_lbl.setStyleSheet("background:#FFF; border:1px solid #C6F6D5; border-radius:8px;")
-        self.grafik_lbl.setMinimumHeight(200)
-        lay.addWidget(self.grafik_lbl)
+        grafik_layout.addWidget(self.grafik_lbl)
+        lay.addWidget(grafik_frame, 1)
 
         MENU = [
             ("📦","Zimmet Ver",self._zimmet_ac),
@@ -520,43 +579,52 @@ class AnaPencere(QMainWindow):
             ("👤","Kullanıcılar",self._kullanici_ac),
             ("📂","Projeler",self._proje_ac),
         ]
-        menu = QGridLayout(); menu.setSpacing(15)
+        menu = QGridLayout(); menu.setSpacing(12)
         for i,(ikon,metin,fn) in enumerate(MENU):
             b = QPushButton(f"{ikon}\n{metin}")
-            b.setFixedHeight(85)
+            b.setFixedHeight(80)
             b.setStyleSheet("QPushButton{font-size:13px; font-weight:bold; padding:8px; border: 1px solid #CBD5E0; border-radius: 8px; background-color: #FFFFFF; color: #2D3748;} QPushButton:hover{background-color:#F7FAFC; border: 1px solid #A0AEC0;}")
             b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             b.clicked.connect(fn); menu.addWidget(b,0,i)
         lay.addLayout(menu)
-        lay.addStretch()
         self._guncelle()
+
+    def _grafik_ciz(self):
+        veriler = self.db.kategori_istatistik()
+        if not veriler: return
+        w = max(self.grafik_lbl.width()-8, 600)
+        h_inch = 2.6; w_inch = w/100
+        kategoriler = [dict(v)['kategori'] for v in veriler]
+        musait  = [dict(v)['musait']  for v in veriler]
+        oduncte = [dict(v)['oduncte'] for v in veriler]
+        kisalt = lambda s: s[:9]+"…" if len(s)>10 else s
+        etiketler = [kisalt(k) for k in kategoriler]
+        fig, ax = plt.subplots(figsize=(w_inch, h_inch))
+        fig.patch.set_facecolor('#FFFFFF'); ax.set_facecolor('#FFFFFF')
+        x = range(len(etiketler)); bw = 0.38
+        ax.bar([i-bw/2 for i in x], musait,  width=bw, label='Müsait',  color='#68D391', zorder=3)
+        ax.bar([i+bw/2 for i in x], oduncte, width=bw, label='Ödünçte', color='#F6AD55', zorder=3)
+        ax.set_xticks(list(x)); ax.set_xticklabels(etiketler, fontsize=9)
+        ax.set_ylabel('Adet', fontsize=9); ax.legend(fontsize=9, framealpha=0.7)
+        ax.set_title('Kategori Bazlı Ekipman Durumu', fontsize=11, color='#22543D', pad=8)
+        ax.tick_params(labelsize=9); ax.spines[['top','right']].set_visible(False)
+        ax.yaxis.grid(True, alpha=0.3, zorder=0); ax.set_axisbelow(True)
+        plt.tight_layout(pad=0.6)
+        buf = io.BytesIO(); fig.savefig(buf, format='png', dpi=100); plt.close(fig); buf.seek(0)
+        pix = QPixmap(); pix.loadFromData(buf.read())
+        self.grafik_lbl.setPixmap(pix)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._grafik_ciz()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._grafik_ciz()
 
     def _guncelle(self):
         s = self.db.istatistik(); self.kart['ekipman'].setText(str(s['ekipman'])); self.kart['zimmet'].setText(str(s['zimmet']))
-        self._grafik_guncelle()
-
-    def _grafik_guncelle(self):
-        veriler = self.db.kategori_istatistik()
-        if not veriler: return
-        kategoriler = [dict(v)['kategori'] for v in veriler]
-        musait    = [dict(v)['musait'] for v in veriler]
-        oduncte   = [dict(v)['oduncte'] for v in veriler]
-        kisalt = lambda s: s[:10]+"…" if len(s)>11 else s
-        etiketler = [kisalt(k) for k in kategoriler]
-        fig, ax = plt.subplots(figsize=(9, 2.4))
-        fig.patch.set_facecolor('#F0FAF4')
-        ax.set_facecolor('#F0FAF4')
-        x = range(len(etiketler)); w = 0.4
-        ax.bar([i-w/2 for i in x], musait,  width=w, label='Müsait',  color='#68D391')
-        ax.bar([i+w/2 for i in x], oduncte, width=w, label='Ödünçte', color='#F6AD55')
-        ax.set_xticks(list(x)); ax.set_xticklabels(etiketler, fontsize=8)
-        ax.set_ylabel('Adet', fontsize=8); ax.legend(fontsize=8)
-        ax.set_title('Kategori Bazlı Ekipman Durumu', fontsize=10, color='#22543D')
-        ax.tick_params(labelsize=8); ax.spines[['top','right']].set_visible(False)
-        plt.tight_layout(pad=0.5)
-        buf = io.BytesIO(); fig.savefig(buf, format='png', dpi=100); plt.close(fig); buf.seek(0)
-        pix = QPixmap(); pix.loadFromData(buf.read())
-        self.grafik_lbl.setPixmap(pix.scaledToWidth(self.grafik_lbl.width()-10, Qt.SmoothTransformation))
+        self._grafik_ciz()
 
     def _zimmet_ac(self): ZimmetVerPenceresi(self.db).exec_(); self._guncelle()
     def _gecmis_ac(self): GecmisPenceresi(self.db).exec_(); self._guncelle()
