@@ -335,7 +335,7 @@ class ZimmetVerPenceresi(QDialog):
         sol = QVBoxLayout(); self.agac = QTreeWidget(); self.agac.setHeaderHidden(True); self.agac.itemSelectionChanged.connect(self._cihaz_sec)
         sol.addWidget(QLabel("Cihaz Listesi:")); sol.addWidget(self.agac); ust.addLayout(sol,1)
         sag = QFormLayout()
-        self.lbl = QLabel("Ağaçtan seçin..."); self.lbl.setStyleSheet("color:#2B6CB0;font-weight:bold;")
+        self.lbl = QLabel("Ağaçtan seçin..."); self.lbl.setStyleSheet("color:#276749;font-weight:bold;")
         self.kullanici = QComboBox(); self.proje = QComboBox(); self.adet = QSpinBox(); self.adet.setMinimum(1); self.adet.setEnabled(False)
         self.tarih = QDateEdit(); self.tarih.setCalendarPopup(True); self.tarih.setDate(QDate.currentDate().addDays(7))
         sag.addRow("Seçili:", self.lbl); sag.addRow("Kullanıcı:", self.kullanici); sag.addRow("Proje:", self.proje)
@@ -488,15 +488,15 @@ class AnaPencere(QMainWindow):
         self.setWindowTitle("BAUN Laboratuvar Takip Sistemi"); self.setGeometry(100,100,1100,680); self.setStyleSheet(STIL_KODU)
         w = QWidget(); self.setCentralWidget(w); lay = QVBoxLayout(w); lay.setSpacing(16); lay.setContentsMargins(20,16,20,16)
 
-        lay.addWidget(QLabel("🔬  <b>BAUN Laboratuvar Takip Sistemi</b>", styleSheet="font-size:18px;color:#22543D;padding:4px 0;"))
+        lay.addWidget(QLabel("🔬  <b>BAUN Laboratuvar Takip Sistemi</b>", styleSheet="font-size:18px;color:#276749;padding:4px 0;"))
 
         kart_lay = QHBoxLayout(); kart_lay.setSpacing(15); self.kart = {}
-        for key, baslik, ikon, renk in [("ekipman","Laboratuvar Envanteri","📦","#3182CE"),("zimmet","Aktif Zimmet Sayısı","🔗","#DD6B20")]:
+        for key, baslik, ikon, renk in [("ekipman","Laboratuvar Envanteri","📦","#276749"),("zimmet","Aktif Zimmet Sayısı","🔗","#2B6CB0")]:
             g = QGroupBox(); g.setStyleSheet(f"QGroupBox{{border:1px solid #E2E8F0;border-top:4px solid {renk};border-radius:8px;background:#FFFFFF;margin-top:0;padding:10px;}}")
             hl = QHBoxLayout(g)
             ikon_lbl = QLabel(ikon); ikon_lbl.setStyleSheet("font-size:28px;"); ikon_lbl.setFixedWidth(44)
             sag = QVBoxLayout()
-            baslik_lbl = QLabel(baslik); baslik_lbl.setStyleSheet("font-size:12px;color:#718096;font-weight:bold;")
+            baslik_lbl = QLabel(baslik); baslik_lbl.setStyleSheet("font-size:12px;color:#52796F;font-weight:bold;")
             sayi_lbl = QLabel("0"); sayi_lbl.setStyleSheet(f"font-size:28px;font-weight:bold;color:{renk};")
             sag.addWidget(baslik_lbl); sag.addWidget(sayi_lbl)
             hl.addWidget(ikon_lbl); hl.addLayout(sag)
@@ -504,7 +504,7 @@ class AnaPencere(QMainWindow):
         lay.addLayout(kart_lay)
 
         self.grafik_lbl = QLabel(); self.grafik_lbl.setAlignment(Qt.AlignCenter)
-        self.grafik_lbl.setStyleSheet("background:#FFF;border:1px solid #C6F6D5;border-radius:8px;")
+        self.grafik_lbl.setStyleSheet("background:#FFF;border:1px solid #9AE6B4;border-radius:8px;")
         self.grafik_lbl.setFixedHeight(220)
         self.grafik_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         lay.addWidget(self.grafik_lbl)
@@ -528,10 +528,10 @@ class AnaPencere(QMainWindow):
         fig.patch.set_facecolor('#FFF'); ax.set_facecolor('#FFF')
         x=range(len(kats)); bw=0.38
         ax.bar([i-bw/2 for i in x],musait, bw,label='Müsait', color='#68D391',zorder=3)
-        ax.bar([i+bw/2 for i in x],oduncte,bw,label='Ödünçte',color='#F6AD55',zorder=3)
+        ax.bar([i+bw/2 for i in x],oduncte,bw,label='Ödünçte',color='#63B3ED',zorder=3)
         ax.set_xticks(list(x)); ax.set_xticklabels([kisalt(k) for k in kats],fontsize=9)
         ax.set_ylabel('Adet',fontsize=9); ax.legend(fontsize=9,framealpha=0.7)
-        ax.set_title('Kategori Bazlı Ekipman Durumu',fontsize=11,color='#22543D',pad=6)
+        ax.set_title('Kategori Bazlı Ekipman Durumu',fontsize=11,color='#276749',pad=6)
         ax.spines[['top','right']].set_visible(False); ax.yaxis.grid(True,alpha=0.3); ax.set_axisbelow(True)
         plt.tight_layout(pad=0.5)
         buf=io.BytesIO(); fig.savefig(buf,format='png',dpi=100); plt.close(fig); buf.seek(0)
