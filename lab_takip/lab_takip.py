@@ -19,7 +19,49 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from tasarim import STIL_KODU
+
+TEMALAR = {
+    "mavi":    {"ana": "#2B6CB0", "acik": "#EBF8FF", "hover": "#90CDF4", "kenar": "#BEE3F8"},
+    "turuncu": {"ana": "#C05621", "acik": "#FFFAF0", "hover": "#FBD38D", "kenar": "#FEEBC8"},
+    "mor":     {"ana": "#553C9A", "acik": "#FAF5FF", "hover": "#D6BCFA", "kenar": "#E9D8FD"},
+    "kirmizi": {"ana": "#C53030", "acik": "#FFF5F5", "hover": "#FEB2B2", "kenar": "#FED7D7"},
+    "turkuaz": {"ana": "#234E52", "acik": "#E6FFFA", "hover": "#81E6D9", "kenar": "#B2F5EA"},
+    "yesil":   {"ana": "#276749", "acik": "#F0FAF4", "hover": "#9AE6B4", "kenar": "#C6F6D5"}
+}
+
+def get_stil(tema):
+    ana = tema["ana"]; acik = tema["acik"]; hover = tema["hover"]; kenar = tema["kenar"]
+    return f"""
+    QMainWindow, QDialog {{ background-color: {acik}; color: #1C3A2A; font-family: 'Segoe UI', sans-serif; }}
+    QGroupBox {{ background-color: #FFFFFF; border: 1px solid {kenar}; border-radius: 12px; margin-top: 18px; font-weight: bold; color: {ana}; padding: 12px; }}
+    QGroupBox::title {{ subcontrol-origin: margin; left: 16px; padding: 0 8px; color: {ana}; }}
+    QPushButton {{ background-color: #FFFFFF; color: {ana}; border-radius: 9px; padding: 8px 16px; font-weight: bold; font-size: 12px; border: 1px solid {kenar}; }}
+    QPushButton:hover {{ background-color: {acik}; border: 1.5px solid {ana}; }}
+    
+    QPushButton#onay_btn {{ background-color: #C6F6D5; color: #22543D; border: 1px solid #68D391; }}
+    QPushButton#onay_btn:hover {{ background-color: #9AE6B4; border: 1px solid #38A169; }}
+    QPushButton#red_btn {{ background-color: #FFF5F5; color: #9B2C2C; border: 1px solid #FEB2B2; }}
+    QPushButton#red_btn:hover {{ background-color: #FED7D7; border: 1px solid #FC8181; }}
+    QPushButton#primary_btn {{ background-color: #276749; color: #FFFFFF; border: 1px solid #276749; }}
+    QPushButton#primary_btn:hover {{ background-color: #22543D; border: 1px solid #22543D; }}
+    QPushButton#warn_btn {{ background-color: #FEFCBF; color: #744210; border: 1px solid #F6E05E; }}
+    QPushButton#warn_btn:hover {{ background-color: #FAF089; border: 1px solid #ECC94B; }}
+    
+    QLineEdit, QComboBox, QSpinBox, QDateEdit, QTextEdit {{ background-color: #FFFFFF; border: 1.5px solid {kenar}; border-radius: 7px; padding: 7px 10px; color: #1C3A2A; font-size: 12px; selection-background-color: {hover}; }}
+    QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDateEdit:focus, QTextEdit:focus {{ border: 1.5px solid {ana}; }}
+    QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled {{ background-color: {acik}; color: #A0AEC0; }}
+    QComboBox::drop-down {{ border: none; width: 30px; }}
+    QComboBox QAbstractItemView {{ border: 1px solid {kenar}; selection-background-color: {acik}; selection-color: #1A202C; background-color: white; border-radius: 4px; }}
+    QTableWidget, QTreeWidget, QListWidget {{ background-color: #FFFFFF; alternate-background-color: {acik}; border: 1px solid {kenar}; gridline-color: {acik}; border-radius: 8px; color: #1C3A2A; font-size: 12px; }}
+    QHeaderView::section {{ background-color: {kenar}; color: {ana}; padding: 8px; border: none; font-weight: bold; font-size: 12px; }}
+    QTableWidget::item:selected, QTreeWidget::item:selected, QListWidget::item:selected {{ background-color: {hover}; color: #1C3A2A; }}
+    QTabWidget::pane {{ border: 1px solid {kenar}; background: #FFFFFF; border-radius: 6px; }}
+    QTabBar::tab {{ background: {acik}; color: {ana}; padding: 8px 18px; border-top-left-radius: 6px; border-top-right-radius: 6px; font-size: 12px; }}
+    QTabBar::tab:selected {{ background: #FFFFFF; color: {ana}; font-weight: bold; border: 1px solid {kenar}; border-bottom: none; }}
+    QScrollBar:vertical {{ background: {acik}; width: 8px; border-radius: 4px; }}
+    QScrollBar::handle:vertical {{ background: {hover}; border-radius: 4px; min-height: 20px; }}
+    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+    """
 
 def _font_kaydet():
     adaylar = [
@@ -40,25 +82,30 @@ def _pdf_stiller():
     st = getSampleStyleSheet()
     fn = 'TRFont' if _FONT_OK else 'Helvetica'
     fb = 'TRFont-Bold' if _FONT_OK else 'Helvetica-Bold'
-    st.add(ParagraphStyle('Baslik', fontName=fb, fontSize=16, alignment=TA_CENTER, textColor=colors.HexColor('#22543D'), spaceAfter=4))
-    st.add(ParagraphStyle('AltBaslik', fontName=fb, fontSize=11, textColor=colors.HexColor('#276749'), spaceBefore=8, spaceAfter=4))
-    st.add(ParagraphStyle('Kucuk', fontName=fn, fontSize=9))
+    # Koyu Lacivert ve Gri tonları (Kurumsal Rapor Görünümü)
+    st.add(ParagraphStyle('Baslik', fontName=fb, fontSize=16, alignment=TA_CENTER, textColor=colors.HexColor('#2C5282'), spaceAfter=4))
+    st.add(ParagraphStyle('AltBaslik', fontName=fb, fontSize=11, textColor=colors.HexColor('#2B6CB0'), spaceBefore=8, spaceAfter=4))
+    st.add(ParagraphStyle('Kucuk', fontName=fn, fontSize=9, textColor=colors.HexColor('#718096')))
     return st
 
 def _pdf_tablo_stili():
     fb = 'TRFont-Bold' if _FONT_OK else 'Helvetica-Bold'
     fn = 'TRFont' if _FONT_OK else 'Helvetica'
     return TableStyle([
-        ('BACKGROUND',    (0,0), (-1,0), colors.HexColor('#C6F6D5')),
-        ('TEXTCOLOR',     (0,0), (-1,0), colors.HexColor('#22543D')),
+        # Başlık Satırı: Daha belirgin bir açık mavi arka plan ve lacivert yazı
+        ('BACKGROUND',    (0,0), (-1,0), colors.HexColor('#BEE3F8')), 
+        ('TEXTCOLOR',     (0,0), (-1,0), colors.HexColor('#2C5282')), 
         ('FONTNAME',      (0,0), (-1,0), fb),
         ('FONTNAME',      (0,1), (-1,-1), fn),
         ('FONTSIZE',      (0,0), (-1,-1), 8),
         ('ALIGN',         (0,0), (-1,-1), 'CENTER'),
-        ('ROWBACKGROUNDS',(0,1), (-1,-1), [colors.white, colors.HexColor('#F0FAF4')]),
-        ('GRID',          (0,0), (-1,-1), 0.4, colors.HexColor('#C6F6D5')),
-        ('TOPPADDING',    (0,0), (-1,-1), 4),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        # Satır Araları: Beyaz ve çok çok uçuk bir mavi-gri
+        ('ROWBACKGROUNDS',(0,1), (-1,-1), [colors.white, colors.HexColor('#F7FAFC')]), 
+        # Çizgiler: Başlıkla uyumlu belirgin mavi tonu
+        ('GRID',          (0,0), (-1,-1), 0.5, colors.HexColor('#90CDF4')), 
+        # Ferahlık için iç boşluklar (padding) hafif artırıldı
+        ('TOPPADDING',    (0,0), (-1,-1), 6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
     ])
 
 def tablo_doldur(tablo, veriler, sutunlar):
@@ -175,11 +222,11 @@ class DB:
 class EkipmanPencere(QDialog):
     KATS = ["Sarf Malzeme","Mikrodenetleyici","Demirbaş Cihaz","El Aleti","Sensörler","Kablo ve Bağlantı"]
     DURUMLAR = ["Müsait","Arızalı","Tamirde","Kalibrasyonda","Pil Değişimi Gerekli"]
-    DURUM_RENK = {"Müsait":"#276749","Arızalı":"#C53030","Tamirde":"#C05621","Kalibrasyonda":"#2B6CB0","Pil Değişimi Gerekli":"#744210"}
-
-    def __init__(self, db):
-        super().__init__(); self.db = db; self.sid = None
-        self.setWindowTitle("Envanter Yönetimi"); self.setGeometry(150,100,1200,620); self.setStyleSheet(STIL_KODU)
+    
+    def __init__(self, db, tema):
+        super().__init__(); self.db = db; self.sid = None; self.tema = tema
+        self.setWindowTitle("Envanter Yönetimi"); self.setGeometry(150,100,1200,620)
+        self.setStyleSheet(get_stil(tema))
         lay = QHBoxLayout(self)
         sol = QGroupBox("Ekipman Bilgileri"); f = QFormLayout(sol)
         self.seri, self.isim = QLineEdit(), QLineEdit()
@@ -207,9 +254,10 @@ class EkipmanPencere(QDialog):
 
     def _listele(self):
         tablo_doldur(self.tablo, self.db.ekipmanlari_getir(self.ara.text(), self.filtre.currentText()), ["id","seri_no","isim","kategori","toplam_adet","musait_adet","bakim_durumu"])
+        durum_renk = {"Müsait":"#276749","Arızalı":"#C53030","Tamirde":"#C05621","Kalibrasyonda":"#2B6CB0","Pil Değişimi Gerekli":"#744210"}
         for r in range(self.tablo.rowCount()):
             item = self.tablo.item(r,6)
-            if item: item.setForeground(QColor(self.DURUM_RENK.get(item.text(),"#1A202C"))); item.setFont(QFont("Segoe UI",10,QFont.Bold))
+            if item: item.setForeground(QColor(durum_renk.get(item.text(),"#1A202C"))); item.setFont(QFont("Segoe UI",10,QFont.Bold))
     def _sec(self):
         r = self.tablo.currentRow()
         if r >= 0:
@@ -235,9 +283,10 @@ class EkipmanPencere(QDialog):
 
 # ── KULLANICI ─────────────────────────────────────────────────────────────────
 class KullaniciPencere(QDialog):
-    def __init__(self, db):
+    def __init__(self, db, tema):
         super().__init__(); self.db = db; self.sid = None
-        self.setWindowTitle("Kullanıcı Yönetimi"); self.setGeometry(200,150,900,500); self.setStyleSheet(STIL_KODU)
+        self.setWindowTitle("Kullanıcı Yönetimi"); self.setGeometry(200,150,900,500)
+        self.setStyleSheet(get_stil(tema))
         lay = QHBoxLayout(self)
         sol = QGroupBox("Kullanıcı Bilgileri"); f = QFormLayout(sol)
         self.ad, self.soyad, self.no = QLineEdit(), QLineEdit(), QLineEdit()
@@ -275,9 +324,10 @@ class KullaniciPencere(QDialog):
 
 # ── PROJE ─────────────────────────────────────────────────────────────────────
 class ProjePencere(QDialog):
-    def __init__(self, db):
+    def __init__(self, db, tema):
         super().__init__(); self.db = db; self.sid = None
-        self.setWindowTitle("Proje Yönetimi"); self.setGeometry(200,150,1000,560); self.setStyleSheet(STIL_KODU)
+        self.setWindowTitle("Proje Yönetimi"); self.setGeometry(200,150,1000,560)
+        self.setStyleSheet(get_stil(tema))
         lay = QHBoxLayout(self)
         sol = QGroupBox("Proje Bilgileri"); f = QFormLayout(sol)
         self.proje_adi = QLineEdit(); self.proje_adi.setPlaceholderText("Proje veya Ders Adı...")
@@ -328,14 +378,15 @@ class ProjePencere(QDialog):
 
 # ── ZİMMET VER ────────────────────────────────────────────────────────────────
 class ZimmetVerPenceresi(QDialog):
-    def __init__(self, db):
+    def __init__(self, db, tema):
         super().__init__(); self.db = db
-        self.setWindowTitle("Zimmet Ver"); self.setGeometry(100,100,1050,620); self.setStyleSheet(STIL_KODU)
+        self.setWindowTitle("Zimmet Ver"); self.setGeometry(100,100,1050,620)
+        self.setStyleSheet(get_stil(tema))
         lay = QVBoxLayout(self); ust = QHBoxLayout()
         sol = QVBoxLayout(); self.agac = QTreeWidget(); self.agac.setHeaderHidden(True); self.agac.itemSelectionChanged.connect(self._cihaz_sec)
         sol.addWidget(QLabel("Cihaz Listesi:")); sol.addWidget(self.agac); ust.addLayout(sol,1)
         sag = QFormLayout()
-        self.lbl = QLabel("Ağaçtan seçin..."); self.lbl.setStyleSheet("color:#276749;font-weight:bold;")
+        self.lbl = QLabel("Ağaçtan seçin..."); self.lbl.setStyleSheet(f"color:{tema['ana']};font-weight:bold;")
         self.kullanici = QComboBox(); self.proje = QComboBox(); self.adet = QSpinBox(); self.adet.setMinimum(1); self.adet.setEnabled(False)
         self.tarih = QDateEdit(); self.tarih.setCalendarPopup(True); self.tarih.setDate(QDate.currentDate().addDays(7))
         sag.addRow("Seçili:", self.lbl); sag.addRow("Kullanıcı:", self.kullanici); sag.addRow("Proje:", self.proje)
@@ -387,9 +438,10 @@ class ZimmetVerPenceresi(QDialog):
 
 # ── GEÇMİŞ VE İADE ───────────────────────────────────────────────────────────
 class GecmisPenceresi(QDialog):
-    def __init__(self, db):
+    def __init__(self, db, tema):
         super().__init__(); self.db = db
-        self.setWindowTitle("Zimmet Geçmişi ve İade"); self.setGeometry(200,150,1000,500); self.setStyleSheet(STIL_KODU)
+        self.setWindowTitle("Zimmet Geçmişi ve İade"); self.setGeometry(200,150,1000,500)
+        self.setStyleSheet(get_stil(tema))
         lay = QVBoxLayout(self); ust = QHBoxLayout()
         self.ara = QLineEdit(); self.ara.setPlaceholderText("Kullanıcı, cihaz veya proje ara..."); self.ara.textChanged.connect(self._filtrele)
         btn_iade = QPushButton("✅ Seçili Cihazı İade Al"); btn_iade.setObjectName("onay_btn"); btn_iade.clicked.connect(self._iade)
@@ -449,9 +501,65 @@ class GecmisPenceresi(QDialog):
                 kats=[dict(v)['kategori'] for v in veriler]; m=[dict(v)['m'] for v in veriler]; o=[dict(v)['o'] for v in veriler]
                 kisalt = lambda s: s[:9]+"…" if len(s)>10 else s
                 fig, ax = plt.subplots(figsize=(7,3)); x=range(len(kats)); w=0.36
-                ax.bar([i-w/2 for i in x],m,w,label='Müsait',color='#68D391'); ax.bar([i+w/2 for i in x],o,w,label='Ödünçte',color='#F6AD55')
+                
+                # Müsait: Turkuaz, Ödünçte: Soft Turuncu
+                ax.bar([i-w/2 for i in x],m,w,label='Müsait',color='#4FD1C5')
+                ax.bar([i+w/2 for i in x],o,w,label='Ödünçte',color='#F6AD55')
+                
                 ax.set_xticks(list(x)); ax.set_xticklabels([kisalt(k) for k in kats],fontsize=8)
-                ax.set_ylabel('Adet',fontsize=8); ax.legend(fontsize=8); ax.set_title('Ekipman Kullanım Durumu',fontsize=10)
+                ax.set_ylabel('Adet',fontsize=8, color='#4A5568'); ax.legend(fontsize=8)
+                ax.set_title('Ekipman Kullanım Durumu',fontsize=10, color='#2C5282')
+                ax.spines[['top','right']].set_visible(False); ax.yaxis.grid(True,alpha=0.3); plt.tight_layout(pad=0.5)
+                buf=io.BytesIO(); fig.savefig(buf,format='png',dpi=120); plt.close(fig); buf.seek(0)
+                h.append(Image(buf,width=14*cm,height=6*cm))
+            h.append(Spacer(1,0.4*cm))
+            h.append(Paragraph("Envanter Özeti", st['AltBaslik']))
+            if veriler:
+                rows=[["Kategori","Toplam","Müsait","Ödünçte","Doluluk %"]]
+                for v in veriler:
+                    d=dict(v); oran=f"%{round(d['o']*100/d['t'])}" if d['t'] else "%0"
+                    rows.append([d['kategori'],str(d['t']),str(d['m']),str(d['o']),oran])
+                h.append(Table(rows,repeatRows=1,colWidths=[6*cm,2.2*cm,2.2*cm,2.5*cm,2.5*cm],style=ts))
+            h.append(Spacer(1,0.4*cm))
+            h.append(Paragraph("En Çok Zimmetlenen Ekipmanlar", st['AltBaslik']))
+            top=self.db.en_cok_zimmetlenen()
+            if top:
+                rows=[["Ekipman","Zimmet Sayısı","Toplam Adet"]]+[[dict(v)['isim'],str(dict(v)['say']),str(dict(v)['adet'])] for v in top]
+                h.append(Table(rows,repeatRows=1,colWidths=[9*cm,4*cm,3*cm],style=ts))
+            h.append(Spacer(1,0.4*cm))
+            h.append(Paragraph("Aktif Zimmetler", st['AltBaslik']))
+            aktif=self.db.aktif_zimmetler()
+            if aktif:
+                rows=[["Cihaz","Adet","Kullanıcı","Proje","Veriliş","İade"]]
+                rows+=[[dict(v)['ekipman_isim'],str(dict(v)['adet']),dict(v)['kullanici_isim'],dict(v).get('proje_isim','-'),dict(v)['verilis_tarihi'],dict(v)['iade_tarihi']] for v in aktif]
+                h.append(Table(rows,repeatRows=1,style=ts))
+            else: h.append(Paragraph("Aktif zimmet kaydı bulunmamaktadır.", st['Kucuk']))
+            doc.build(h)
+            QMessageBox.information(self,"Başarılı","PDF raporu oluşturuldu.")
+        except Exception as e: QMessageBox.critical(self,"Hata",str(e))
+
+def _pdf(self):
+        yol, _ = QFileDialog.getSaveFileName(self,"PDF Kaydet","lab_raporu.pdf","PDF (*.pdf)")
+        if not yol: return
+        try:
+            doc = SimpleDocTemplate(yol, pagesize=pgsz.A4, topMargin=1.5*cm, bottomMargin=1.5*cm, leftMargin=1.5*cm, rightMargin=1.5*cm)
+            st = _pdf_stiller(); ts = _pdf_tablo_stili(); h = []
+            h.append(Paragraph("BAUN Laboratuvar Takip Sistemi", st['Baslik']))
+            h.append(Paragraph(f"Rapor Tarihi: {date.today().strftime('%d.%m.%Y')}", st['Kucuk']))
+            h.append(Spacer(1, 0.5*cm))
+            veriler = self.db.kategori_istatistik()
+            if veriler:
+                kats=[dict(v)['kategori'] for v in veriler]; m=[dict(v)['m'] for v in veriler]; o=[dict(v)['o'] for v in veriler]
+                kisalt = lambda s: s[:9]+"…" if len(s)>10 else s
+                fig, ax = plt.subplots(figsize=(7,3)); x=range(len(kats)); w=0.36
+                
+                # Müsait: Turkuaz, Ödünçte: Soft Turuncu
+                ax.bar([i-w/2 for i in x],m,w,label='Müsait',color='#4FD1C5')
+                ax.bar([i+w/2 for i in x],o,w,label='Ödünçte',color='#F6AD55')
+                
+                ax.set_xticks(list(x)); ax.set_xticklabels([kisalt(k) for k in kats],fontsize=8)
+                ax.set_ylabel('Adet',fontsize=8, color='#4A5568'); ax.legend(fontsize=8)
+                ax.set_title('Ekipman Kullanım Durumu',fontsize=10, color='#2C5282')
                 ax.spines[['top','right']].set_visible(False); ax.yaxis.grid(True,alpha=0.3); plt.tight_layout(pad=0.5)
                 buf=io.BytesIO(); fig.savefig(buf,format='png',dpi=120); plt.close(fig); buf.seek(0)
                 h.append(Image(buf,width=14*cm,height=6*cm))
@@ -485,58 +593,101 @@ class GecmisPenceresi(QDialog):
 class AnaPencere(QMainWindow):
     def __init__(self):
         super().__init__(); self.db = DB()
-        self.setWindowTitle("BAUN Laboratuvar Takip Sistemi"); self.setGeometry(100,100,1100,680); self.setStyleSheet(STIL_KODU)
-        w = QWidget(); self.setCentralWidget(w); lay = QVBoxLayout(w); lay.setSpacing(16); lay.setContentsMargins(20,16,20,16)
+        self.setWindowTitle("BAUN Laboratuvar Takip Sistemi"); self.setGeometry(100,100,1100,680)
+        self.setStyleSheet(get_stil(TEMALAR["yesil"])) 
+        
+        w = QWidget(); self.setCentralWidget(w)
+        lay = QVBoxLayout(w); lay.setSpacing(12); lay.setContentsMargins(20,12,20,16)
 
-        lay.addWidget(QLabel("🔬  <b>BAUN Laboratuvar Takip Sistemi</b>", styleSheet="font-size:18px;color:#276749;padding:4px 0;"))
+        lay.addWidget(QLabel("🔬  <b>BAUN Laboratuvar Takip Sistemi</b>", styleSheet="font-size:18px;color:#276749;padding:0;margin:0;"))
 
         kart_lay = QHBoxLayout(); kart_lay.setSpacing(15); self.kart = {}
-        for key, baslik, ikon, renk in [("ekipman","Laboratuvar Envanteri","📦","#276749"),("zimmet","Aktif Zimmet Sayısı","🔗","#2B6CB0")]:
-            g = QGroupBox(); g.setStyleSheet(f"QGroupBox{{border:1px solid #E2E8F0;border-top:4px solid {renk};border-radius:8px;background:#FFFFFF;margin-top:0;padding:10px;}}")
-            hl = QHBoxLayout(g)
+        kart_verileri = [
+            ("ekipman", "Laboratuvar Envanteri", "📦", TEMALAR["mor"]),
+            ("zimmet", "Aktif Zimmet Sayısı", "🔗", TEMALAR["mavi"])
+        ]
+        
+        for key, baslik, ikon, t in kart_verileri:
+            g = QGroupBox()
+            g.setFixedHeight(95)
+            # DOKUNUŞ: Yatayda genişlesin (Expanding), Dikeyde sabit kalsın (Fixed)
+            g.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed) 
+            g.setStyleSheet(f"QGroupBox{{border:2px solid {t['hover']}; border-radius:12px; background:{t['acik']}; margin-top:0; padding:5px;}}")
+            hl = QHBoxLayout(g); hl.setContentsMargins(10,5,10,5)
             ikon_lbl = QLabel(ikon); ikon_lbl.setStyleSheet("font-size:28px;"); ikon_lbl.setFixedWidth(44)
-            sag = QVBoxLayout()
-            baslik_lbl = QLabel(baslik); baslik_lbl.setStyleSheet("font-size:12px;color:#52796F;font-weight:bold;")
-            sayi_lbl = QLabel("0"); sayi_lbl.setStyleSheet(f"font-size:28px;font-weight:bold;color:{renk};")
+            sag = QVBoxLayout(); sag.setSpacing(0)
+            baslik_lbl = QLabel(baslik); baslik_lbl.setStyleSheet(f"font-size:12px;color:{t['ana']};font-weight:bold;")
+            sayi_lbl = QLabel("0"); sayi_lbl.setStyleSheet(f"font-size:26px;font-weight:bold;color:{t['ana']};")
             sag.addWidget(baslik_lbl); sag.addWidget(sayi_lbl)
             hl.addWidget(ikon_lbl); hl.addLayout(sag)
             self.kart[key] = sayi_lbl; kart_lay.addWidget(g)
+        
+        # addStretch komutunu sildik, artık kutular sağa doğru tam yayılacak
         lay.addLayout(kart_lay)
 
         self.grafik_lbl = QLabel(); self.grafik_lbl.setAlignment(Qt.AlignCenter)
-        self.grafik_lbl.setStyleSheet("background:#FFF;border:1px solid #9AE6B4;border-radius:8px;")
-        self.grafik_lbl.setFixedHeight(220)
-        self.grafik_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        lay.addWidget(self.grafik_lbl)
+        self.grafik_lbl.setStyleSheet("background:#FFF;border:1px solid #9AE6B4;border-radius:12px;")
+        self.grafik_lbl.setMinimumSize(300, 200)
+        self.grafik_lbl.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding) 
+        lay.addWidget(self.grafik_lbl, 1)
 
-        MENU = [("📦","Zimmet Ver",self._zimmet_ac),("📜","Geçmiş ve İade",self._gecmis_ac),
-                ("🔧","Envanter",self._ekipman_ac),("👤","Kullanıcılar",self._kullanici_ac),("📂","Projeler",self._proje_ac)]
-        menu = QGridLayout(); menu.setSpacing(15)
-        for i,(ikon,metin,fn) in enumerate(MENU):
+        MENU = [
+            ("📦","Zimmet Ver", self._zimmet_ac, TEMALAR["mavi"]),
+            ("📜","Geçmiş ve İade", self._gecmis_ac, TEMALAR["turuncu"]),
+            ("🔧","Envanter", self._ekipman_ac, TEMALAR["mor"]),
+            ("👤","Kullanıcılar", self._kullanici_ac, TEMALAR["kirmizi"]),
+            ("📂","Projeler", self._proje_ac, TEMALAR["turkuaz"])
+        ]
+        
+        menu = QGridLayout(); menu.setSpacing(12)
+        for i, (ikon, metin, fn, tema) in enumerate(MENU):
             b = QPushButton(f"{ikon}\n{metin}"); b.setFixedHeight(85)
-            b.setStyleSheet("QPushButton{font-size:13px;font-weight:bold;padding:8px;border:1px solid #CBD5E0;border-radius:8px;background:#FFFFFF;color:#2D3748;} QPushButton:hover{background:#F7FAFC;border:1px solid #A0AEC0;}")
-            b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed); b.clicked.connect(fn); menu.addWidget(b,0,i)
+            b.setStyleSheet(f"QPushButton{{font-size:14px; font-weight:bold; padding:10px; border:2px solid {tema['hover']}; border-radius:12px; background:{tema['acik']}; color:{tema['ana']};}} QPushButton:hover{{background:#FFFFFF; border:2px solid {tema['ana']};}}")
+            b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            b.clicked.connect(lambda checked=False, f=fn, t=tema: f(t))
+            menu.addWidget(b, 0, i)
+            
         lay.addLayout(menu)
         self._guncelle()
 
     def _grafik_ciz(self):
         veriler = self.db.kategori_istatistik()
-        if not veriler or self.grafik_lbl.width() < 50: return
+        if not veriler or self.grafik_lbl.width() < 50 or self.grafik_lbl.height() < 50: return
         kats=[dict(v)['kategori'] for v in veriler]; musait=[dict(v)['m'] for v in veriler]; oduncte=[dict(v)['o'] for v in veriler]
         kisalt = lambda s: s[:9]+"…" if len(s)>10 else s
-        fig, ax = plt.subplots(figsize=(10, 2.2))
+        
+        # Etiket boyutunu birebir alıyoruz ki ekstra kayma yapmasın
+        w_px = self.grafik_lbl.width()
+        h_px = self.grafik_lbl.height()
+        w_inch = w_px / 100.0
+        h_inch = h_px / 100.0
+        
+        fig, ax = plt.subplots(figsize=(w_inch, h_inch), dpi=100)
         fig.patch.set_facecolor('#FFF'); ax.set_facecolor('#FFF')
-        x=range(len(kats)); bw=0.38
-        ax.bar([i-bw/2 for i in x],musait, bw,label='Müsait', color='#68D391',zorder=3)
-        ax.bar([i+bw/2 for i in x],oduncte,bw,label='Ödünçte',color='#63B3ED',zorder=3)
-        ax.set_xticks(list(x)); ax.set_xticklabels([kisalt(k) for k in kats],fontsize=9)
-        ax.set_ylabel('Adet',fontsize=9); ax.legend(fontsize=9,framealpha=0.7)
-        ax.set_title('Kategori Bazlı Ekipman Durumu',fontsize=11,color='#276749',pad=6)
-        ax.spines[['top','right']].set_visible(False); ax.yaxis.grid(True,alpha=0.3); ax.set_axisbelow(True)
+        
+        x = range(len(kats))
+        
+        # Tam ekranda barlar devasa yağ tulumu gibi olmasın diye dinamik genişlik
+        bw = min(0.38, 1.2 / max(len(kats), 1)) 
+        
+        ax.bar([i - bw/2 for i in x], musait, width=bw, label='Müsait', color='#68D391', zorder=3)
+        ax.bar([i + bw/2 for i in x], oduncte, width=bw, label='Ödünçte', color='#63B3ED', zorder=3)
+        
+        ax.set_xticks(list(x)); ax.set_xticklabels([kisalt(k) for k in kats], fontsize=9)
+        ax.set_ylabel('Adet', fontsize=9); ax.legend(fontsize=9, framealpha=0.7)
+        ax.set_title('Kategori Bazlı Ekipman Durumu', fontsize=11, color='#276749', pad=6)
+        ax.spines[['top','right']].set_visible(False); ax.yaxis.grid(True, alpha=0.3); ax.set_axisbelow(True)
+        
         plt.tight_layout(pad=0.5)
-        buf=io.BytesIO(); fig.savefig(buf,format='png',dpi=100); plt.close(fig); buf.seek(0)
+        buf = io.BytesIO(); fig.savefig(buf, format='png', dpi=100); plt.close(fig); buf.seek(0)
+        
+        # Ölçeklemeyi (scaled) kaldırdık, birebir piksel oturacak
         pix = QPixmap.fromImage(QImage.fromData(buf.read()))
-        self.grafik_lbl.setPixmap(pix.scaledToWidth(self.grafik_lbl.width()-4, Qt.SmoothTransformation))
+        self.grafik_lbl.setPixmap(pix)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._grafik_ciz()
 
     def showEvent(self, e): super().showEvent(e); QTimer.singleShot(50, self._grafik_ciz)
 
@@ -544,11 +695,11 @@ class AnaPencere(QMainWindow):
         s = self.db.istatistik(); self.kart['ekipman'].setText(str(s['ekipman'])); self.kart['zimmet'].setText(str(s['zimmet']))
         self._grafik_ciz()
 
-    def _zimmet_ac(self): ZimmetVerPenceresi(self.db).exec_(); self._guncelle()
-    def _gecmis_ac(self): GecmisPenceresi(self.db).exec_(); self._guncelle()
-    def _ekipman_ac(self): EkipmanPencere(self.db).exec_(); self._guncelle()
-    def _kullanici_ac(self): KullaniciPencere(self.db).exec_(); self._guncelle()
-    def _proje_ac(self): ProjePencere(self.db).exec_(); self._guncelle()
+    def _zimmet_ac(self, tema): ZimmetVerPenceresi(self.db, tema).exec_(); self._guncelle()
+    def _gecmis_ac(self, tema): GecmisPenceresi(self.db, tema).exec_(); self._guncelle()
+    def _ekipman_ac(self, tema): EkipmanPencere(self.db, tema).exec_(); self._guncelle()
+    def _kullanici_ac(self, tema): KullaniciPencere(self.db, tema).exec_(); self._guncelle()
+    def _proje_ac(self, tema): ProjePencere(self.db, tema).exec_(); self._guncelle()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv); app.setStyle("Fusion")
