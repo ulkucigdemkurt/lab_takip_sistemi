@@ -92,18 +92,14 @@ def _pdf_tablo_stili():
     fb = 'TRFont-Bold' if _FONT_OK else 'Helvetica-Bold'
     fn = 'TRFont' if _FONT_OK else 'Helvetica'
     return TableStyle([
-        # Başlık Satırı: Daha belirgin bir açık mavi arka plan ve lacivert yazı
         ('BACKGROUND',    (0,0), (-1,0), colors.HexColor('#BEE3F8')), 
         ('TEXTCOLOR',     (0,0), (-1,0), colors.HexColor('#2C5282')), 
         ('FONTNAME',      (0,0), (-1,0), fb),
         ('FONTNAME',      (0,1), (-1,-1), fn),
         ('FONTSIZE',      (0,0), (-1,-1), 8),
         ('ALIGN',         (0,0), (-1,-1), 'CENTER'),
-        # Satır Araları: Beyaz ve çok çok uçuk bir mavi-gri
         ('ROWBACKGROUNDS',(0,1), (-1,-1), [colors.white, colors.HexColor('#F7FAFC')]), 
-        # Çizgiler: Başlıkla uyumlu belirgin mavi tonu
         ('GRID',          (0,0), (-1,-1), 0.5, colors.HexColor('#90CDF4')), 
-        # Ferahlık için iç boşluklar (padding) hafif artırıldı
         ('TOPPADDING',    (0,0), (-1,-1), 6),
         ('BOTTOMPADDING', (0,0), (-1,-1), 6),
     ])
@@ -502,7 +498,6 @@ class GecmisPenceresi(QDialog):
                 kisalt = lambda s: s[:9]+"…" if len(s)>10 else s
                 fig, ax = plt.subplots(figsize=(7,3)); x=range(len(kats)); w=0.36
                 
-                # Müsait: Turkuaz, Ödünçte: Soft Turuncu
                 ax.bar([i-w/2 for i in x],m,w,label='Müsait',color='#4FD1C5')
                 ax.bar([i+w/2 for i in x],o,w,label='Ödünçte',color='#F6AD55')
                 
@@ -553,7 +548,6 @@ def _pdf(self):
                 kisalt = lambda s: s[:9]+"…" if len(s)>10 else s
                 fig, ax = plt.subplots(figsize=(7,3)); x=range(len(kats)); w=0.36
                 
-                # Müsait: Turkuaz, Ödünçte: Soft Turuncu
                 ax.bar([i-w/2 for i in x],m,w,label='Müsait',color='#4FD1C5')
                 ax.bar([i+w/2 for i in x],o,w,label='Ödünçte',color='#F6AD55')
                 
@@ -610,7 +604,6 @@ class AnaPencere(QMainWindow):
         for key, baslik, ikon, t in kart_verileri:
             g = QGroupBox()
             g.setFixedHeight(95)
-            # DOKUNUŞ: Yatayda genişlesin (Expanding), Dikeyde sabit kalsın (Fixed)
             g.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed) 
             g.setStyleSheet(f"QGroupBox{{border:2px solid {t['hover']}; border-radius:12px; background:{t['acik']}; margin-top:0; padding:5px;}}")
             hl = QHBoxLayout(g); hl.setContentsMargins(10,5,10,5)
@@ -622,7 +615,6 @@ class AnaPencere(QMainWindow):
             hl.addWidget(ikon_lbl); hl.addLayout(sag)
             self.kart[key] = sayi_lbl; kart_lay.addWidget(g)
         
-        # addStretch komutunu sildik, artık kutular sağa doğru tam yayılacak
         lay.addLayout(kart_lay)
 
         self.grafik_lbl = QLabel(); self.grafik_lbl.setAlignment(Qt.AlignCenter)
@@ -656,7 +648,6 @@ class AnaPencere(QMainWindow):
         kats=[dict(v)['kategori'] for v in veriler]; musait=[dict(v)['m'] for v in veriler]; oduncte=[dict(v)['o'] for v in veriler]
         kisalt = lambda s: s[:9]+"…" if len(s)>10 else s
         
-        # Etiket boyutunu birebir alıyoruz ki ekstra kayma yapmasın
         w_px = self.grafik_lbl.width()
         h_px = self.grafik_lbl.height()
         w_inch = w_px / 100.0
@@ -667,7 +658,6 @@ class AnaPencere(QMainWindow):
         
         x = range(len(kats))
         
-        # Tam ekranda barlar devasa yağ tulumu gibi olmasın diye dinamik genişlik
         bw = min(0.38, 1.2 / max(len(kats), 1)) 
         
         ax.bar([i - bw/2 for i in x], musait, width=bw, label='Müsait', color='#68D391', zorder=3)
@@ -681,7 +671,6 @@ class AnaPencere(QMainWindow):
         plt.tight_layout(pad=0.5)
         buf = io.BytesIO(); fig.savefig(buf, format='png', dpi=100); plt.close(fig); buf.seek(0)
         
-        # Ölçeklemeyi (scaled) kaldırdık, birebir piksel oturacak
         pix = QPixmap.fromImage(QImage.fromData(buf.read()))
         self.grafik_lbl.setPixmap(pix)
 
